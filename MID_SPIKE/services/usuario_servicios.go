@@ -6,11 +6,13 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/astaxie/beego"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/exp/rand"
+	"gopkg.in/gomail.v2"
 )
 
 func Metodo_post(nombre_servicio string, endpoint string, data []byte) ([]byte, error) {
@@ -112,4 +114,45 @@ func GenerarToken() (string, string, error) {
 	}
 
 	return token, string(hashedToken), nil
+}
+
+// VerificarToken compara el token ingresado con el hash almacenado
+func VerificarToken(tokenIngresado string, tokenGuardado string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(tokenGuardado), []byte(tokenIngresado))
+	return err == nil
+}
+
+// EnviarCorreo envía un token de recuperación al usuario
+func EnviarCorreo(destinatario string, token string) error {
+
+	// Obtener credenciales del .env
+	smtpHost := os.Getenv("SMTP_HOST")
+	smtpPort := os.Getenv("SMTP_PORT")
+	smtpUser := os.Getenv("SMTP_USER")
+	smtpPass := os.Getenv("SMTP_PASS")
+	smtpSender := os.Getenv("SMTP_SENDER")
+
+	// Convertir puerto a entero
+	port := 587 // Valor por defecto
+	fmt.Sscanf(smtpPort, "%d", &port)
+
+	// Configurar mensaje
+	mensaje := gomail.NewMessage()
+	mensaje.SetHeader("From", smtpSender)
+	mensaje.SetHeader("To", destinatario)
+	mensaje.SetHeader("Subject", "Recuperación de contraseña")
+	mensaje.SetBody("text/plain", fmt.Sprintf("Tu código de recuperación es: %s", token))
+
+	// Configurar servidor SMTP
+	dialer := gomail.NewDialer(smtpHost, port, smtpUser, smtpPass)
+
+	// Enviar correo
+	err := dialer.DialAndSend(mensaje)
+	if err != nil {
+		log.Printf("Error enviando el correo: %v", err)
+		return err
+	}
+
+	fmt.Println("Correo enviado correctamente a", destinatario)
+	return nil
 }
