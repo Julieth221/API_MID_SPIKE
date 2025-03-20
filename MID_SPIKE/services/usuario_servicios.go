@@ -52,6 +52,21 @@ func Metodo_post(nombre_servicio string, endpoint string, data []byte) ([]byte, 
 	return body, nil
 }
 
+func Metodo_get(nombre_servicio, endpoint, parametro string) ([]byte, error) {
+	url := beego.AppConfig.String(nombre_servicio) + parametro
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return body, nil
+}
+
 func Metodo_put(nombre_servicio string, endpoint string, id string, data []byte) ([]byte, error) {
 
 	// Obtener la URL base desde la configuracion de Beego
