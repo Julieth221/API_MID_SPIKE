@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/astaxie/beego"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/exp/rand"
 )
 
 func Metodo_post(nombre_servicio string, endpoint string, data []byte) ([]byte, error) {
@@ -97,4 +99,17 @@ func Metodo_put(nombre_servicio string, endpoint string, id string, data []byte)
 	}
 	return body, nil
 
+}
+
+// GenerarToken crea un token de 5 dígitos aleatorios y lo hashea
+func GenerarToken() (string, string, error) {
+	token := fmt.Sprintf("%05d", 10000+rand.Intn(90000)) // Token de 5 dígitos
+
+	// Hashear el token antes de guardarlo
+	hashedToken, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+	if err != nil {
+		return "", "", err
+	}
+
+	return token, string(hashedToken), nil
 }
