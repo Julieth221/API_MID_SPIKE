@@ -2,14 +2,17 @@ package services
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/astaxie/beego"
+	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/exp/rand"
 	"gopkg.in/gomail.v2"
@@ -85,7 +88,7 @@ func Metodo_get(nombre_servicio, endpoint, parametro string) ([]byte, error) {
 		return nil, fmt.Errorf("error al leer la respuesta: %v", err)
 	}
 
-	fmt.Println("Respuesta de la API:", string(body))
+	// fmt.Println("Respuesta de la API:", string(body))
 	return body, nil
 }
 
@@ -152,33 +155,48 @@ func VerificarToken(tokenIngresado string, tokenGuardado string) bool {
 	return err == nil
 }
 
+func init() {
+	err := godotenv.Load() // Carga el archivo .env en el entorno
+	if err != nil {
+		log.Println("Error cargando el archivo .env:", err)
+	}
+}
+
 // EnviarCorreo envía un token de recuperación al usuario
 func EnviarCorreo(destinatario string, token string) error {
-
 	// Obtener credenciales del .env
 	smtpHost := os.Getenv("SMTP_HOST")
 	smtpPort := os.Getenv("SMTP_PORT")
 	smtpUser := os.Getenv("SMTP_USER")
 	smtpPass := os.Getenv("SMTP_PASS")
-	smtpSender := os.Getenv("SMTP_SENDER")
+	fmt.Println("SMTP_PORT:", smtpPort)
+
+	if smtpHost == "" || smtpPort == "" || smtpUser == "" || smtpPass == "" {
+		log.Println("Error: Configuración de SMTP incompleta")
+		return fmt.Errorf("configuración de SMTP incompleta")
+	}
 
 	// Convertir puerto a entero
-	port := 587 // Valor por defecto
-	fmt.Sscanf(smtpPort, "%d", &port)
+	port, err := strconv.Atoi(smtpPort)
+	if err != nil {
+		log.Printf("Error convirtiendo SMTP_PORT a número: %v", err)
+		return err
+	}
+	fmt.Println("SMTP_PORT:", smtpPort)
 
 	// Configurar mensaje
 	mensaje := gomail.NewMessage()
-	mensaje.SetHeader("From", smtpSender)
+	mensaje.SetHeader("From", smtpUser)
 	mensaje.SetHeader("To", destinatario)
 	mensaje.SetHeader("Subject", "Recuperación de contraseña")
 	mensaje.SetBody("text/plain", fmt.Sprintf("Tu código de recuperación es: %s", token))
 
 	// Configurar servidor SMTP
 	dialer := gomail.NewDialer(smtpHost, port, smtpUser, smtpPass)
+	dialer.TLSConfig = &tls.Config{InsecureSkipVerify: true} // Descomentar si hay problemas con TLS
 
 	// Enviar correo
-	err := dialer.DialAndSend(mensaje)
-	if err != nil {
+	if err := dialer.DialAndSend(mensaje); err != nil {
 		log.Printf("Error enviando el correo: %v", err)
 		return err
 	}
