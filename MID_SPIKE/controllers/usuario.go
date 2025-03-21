@@ -221,6 +221,42 @@ func (c *UsuarioController) Put() {
 	}
 	fmt.Println("ID de la credencial encontrada:", (credencialID))
 
+	// **Generar token de recuperación**
+	token, hashedToken, err := services.GenerarToken()
+	if err != nil {
+		fmt.Println("Error al generar el token:", err)
+		c.Data["json"] = map[string]string{"error": "Error al generar el token de recuperación"}
+		c.ServeJSON()
+		return
+	}
+	fmt.Println("Token generado: ", token)
+
+	// **Guardar el token hasheado en la base de datos de credenciales**
+	updateData := map[string]interface{}{
+		"token": hashedToken,
+	}
+	updateJSON, _ := json.Marshal(updateData)
+
+	// **Actualizar la credencial con el token**
+	_, err = services.Metodo_put("API_CRUD", "/v1/Credenciales", fmt.Sprintf("%v", credencialID), updateJSON)
+	if err != nil {
+		fmt.Println("Error al actualizar el token de recuperación:", err)
+		c.Data["json"] = map[string]string{"error": "Error al guardar el token de recuperación"}
+		c.ServeJSON()
+		return
+	}
+	// **Enviar el correo con el token al usuario**
+	err = services.EnviarCorreo(correo, token)
+	if err != nil {
+		fmt.Println("Error al enviar el correo:", err)
+		c.Data["json"] = map[string]string{"error": "Error al enviar el correo de recuperación"}
+		c.ServeJSON()
+		return
+	}
+
+	// **Respuesta de éxito**
+	c.Data["json"] = map[string]string{"mensaje": "Correo de recuperación enviado correctamente"}
+	c.ServeJSON()
 }
 
 // Delete ...
