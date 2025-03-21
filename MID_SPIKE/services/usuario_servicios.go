@@ -57,32 +57,56 @@ func Metodo_post(nombre_servicio string, endpoint string, data []byte) ([]byte, 
 }
 
 func Metodo_get(nombre_servicio, endpoint, parametro string) ([]byte, error) {
-	url := beego.AppConfig.String(nombre_servicio) + parametro
+	baseURL := beego.AppConfig.String(nombre_servicio)
+	if baseURL == "" {
+		return nil, fmt.Errorf("no se encontró la configuración para %s", nombre_servicio)
+	}
+
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "http://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s%s%s", baseURL, endpoint, parametro)
+	fmt.Println("URL construida:", url)
+
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error en GET a %s: %v", url, err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error en API GET: %d - %s", resp.StatusCode, string(body))
+	}
+
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("error al leer la respuesta: %v", err)
 	}
+
+	fmt.Println("Respuesta de la API:", string(body))
 	return body, nil
 }
 
-func Metodo_put(nombre_servicio string, endpoint string, id string, data []byte) ([]byte, error) {
-
-	// Obtener la URL base desde la configuracion de Beego
+func Metodo_put(nombre_servicio, endpoint, id string, data []byte) ([]byte, error) {
 	baseURL := beego.AppConfig.String(nombre_servicio)
+	if baseURL == "" {
+		return nil, fmt.Errorf("no se encontró la configuración para %s", nombre_servicio)
+	}
 
-	// Construir la URL final con el ID
-	url := fmt.Sprintf("%s/%s", baseURL, id)
+	// Asegurar que la URL tiene "http://"
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "http://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s%s/%s", baseURL, endpoint, id)
+	fmt.Println("URL construida:", url)
 
 	// Crear la solicitud PUT
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(data))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error al crear la solicitud PUT: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -90,17 +114,23 @@ func Metodo_put(nombre_servicio string, endpoint string, id string, data []byte)
 	client := &http.Client{}
 	response, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error en PUT a %s: %v", url, err)
 	}
 	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNoContent {
+		body, _ := ioutil.ReadAll(response.Body)
+		return nil, fmt.Errorf("error en API PUT: %d - %s", response.StatusCode, string(body))
+	}
 
 	// Leer la respuesta
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("error al leer la respuesta: %v", err)
 	}
-	return body, nil
 
+	fmt.Println("Respuesta de la API:", string(body))
+	return body, nil
 }
 
 // GenerarToken crea un token de 5 dígitos aleatorios y lo hashea
