@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/astaxie/beego"
-	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/models"
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
 )
 
@@ -32,9 +31,7 @@ func (c *UsuarioController) URLMapping() {
 // @router / [post]
 func (c *UsuarioController) Post() {
 	var body_ingreso map[string]interface{}
-	var alerta models.Alert
 	var reponseUsuario, responseCredencial []byte
-	fmt.Println("primer print: ", alerta, reponseUsuario)
 
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body_ingreso); err == nil {
 		fmt.Println("Body que ingresa", body_ingreso)
@@ -62,7 +59,7 @@ func (c *UsuarioController) Post() {
 		// json_usuario_byte, _ := json.Marshal(jsonUsuario)
 
 		fmt.Println("json credencial: ", string(json_credencial_byte))
-		responseCredencial, _ = services.Metodo_post("API_CRUD_USUARIO", "/v1/Credenciales", json_credencial_byte)
+		responseCredencial, _ = services.Metodo_post("API_CRUD", "/v1/Credenciales", json_credencial_byte)
 		if err != nil {
 			fmt.Println("Error al crear credenciales:", err)
 			return
@@ -105,7 +102,7 @@ func (c *UsuarioController) Post() {
 		// Convertir a JSON y enviar POST a /v1/Usuario
 		json_usuario_byte, _ := json.Marshal(jsonUsuario)
 		fmt.Println("Enviando JSON a /v1/Usuario:", string(json_usuario_byte))
-		reponseUsuario, err = services.Metodo_post("API_CRUD_USUARIO", "/v1/Usuario", json_usuario_byte)
+		reponseUsuario, err = services.Metodo_post("API_CRUD", "/v1/Usuario", json_usuario_byte)
 		if err != nil {
 			fmt.Println(" Error al crear usuario:", err)
 			return
@@ -113,6 +110,11 @@ func (c *UsuarioController) Post() {
 
 		fmt.Println("Respuesta de la API (Usuario):", string(reponseUsuario))
 	}
+
+	c.Data["json"] = map[string]interface{}{
+		"Message": "¡Usuario creado exitosamente!",
+	}
+	c.ServeJSON()
 
 }
 
@@ -150,8 +152,74 @@ func (c *UsuarioController) GetAll() {
 // @Param	body		body 	models.Usuario_controller.Go	true		"body for Usuario_controller.Go content"
 // @Success 200 {object} models.Usuario_controller.Go
 // @Failure 403 :id is not int
-// @router /:id [put]
+// @router /:correo [put]
 func (c *UsuarioController) Put() {
+	fmt.Println("Función PUT")
+	var body map[string]interface{}
+
+	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
+		fmt.Println("Error al leer el cuerpo de la solicitud:", err)
+		c.Data["json"] = map[string]interface{}{"error": "Solicitud inválida"}
+		c.ServeJSON()
+		return
+	}
+	fmt.Println("Este es el body de ingreso:", body)
+	correo, ok := body["CorreoElectronico"].(string)
+	if !ok {
+		fmt.Println("El campo CorreoElectronico no está en el body o tiene un formato incorrecto")
+		c.Data["json"] = map[string]string{"error": "Campo CorreoElectronico inválido"}
+		c.ServeJSON()
+		return
+	}
+	// Buscar usuario por correo
+	queryParam := "?query=CorreoElectronico:" + correo
+	responseUsuario, err := services.Metodo_get("API_CRUD", "/v1/Usuario", queryParam)
+	if err != nil {
+		fmt.Println("Error al obtener usuario:", err)
+		c.Data["json"] = map[string]string{"error": "Error al buscar usuario"}
+		c.ServeJSON()
+		return
+	}
+
+	// fmt.Println("Respuesta de la API (Usuario):", string(responseUsuario))
+
+	// Parsear la respuesta
+	var resultado map[string]interface{}
+	if err := json.Unmarshal(responseUsuario, &resultado); err != nil {
+		fmt.Println("Error al parsear la respuesta del usuario:", err)
+		c.Data["json"] = map[string]string{"error": "Error en el procesamiento de la respuesta"}
+		c.ServeJSON()
+		return
+	}
+	// Validar si el usuario existe
+	data, ok := resultado["Data"].([]interface{})
+	if !ok || len(data) == 0 {
+		fmt.Println("El usuario con correo", correo, "no existe")
+		c.Data["json"] = map[string]string{"mensaje": "El usuario no existe"}
+		c.ServeJSON()
+		return
+	}
+	fmt.Println("Validacion del usuario:", data)
+
+	// 2. Extraer el FkCredencial del usuario
+	usuario := data[0].(map[string]interface{})
+	fkCredencial, ok := usuario["FkCredencial"].(map[string]interface{})
+	if !ok {
+		fmt.Println("El usuario no tiene FkCredencial")
+		c.Data["json"] = map[string]string{"error": "El usuario no tiene credenciales asociadas"}
+		c.ServeJSON()
+		return
+	}
+	fmt.Println("ID Credencial: ", fkCredencial)
+
+	credencialID, ok := fkCredencial["Id"]
+	if !ok {
+		fmt.Println("El campo Id de FkCredencial no es válido")
+		c.Data["json"] = map[string]string{"error": "Id de credencial inválido"}
+		c.ServeJSON()
+		return
+	}
+	fmt.Println("ID de la credencial encontrada:", (credencialID))
 
 }
 
