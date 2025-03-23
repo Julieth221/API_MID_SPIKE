@@ -33,7 +33,7 @@ func (c *UsuarioController) URLMapping() {
 // @router / [post]
 func (c *UsuarioController) Post() {
 	var body_ingreso map[string]interface{}
-	var reponseUsuario, responseCredencial []byte
+	var reponseUsuario, responseCredencial, responseRolUsuario []byte
 
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body_ingreso); err == nil {
 		fmt.Println("Body que ingresa", body_ingreso)
@@ -111,6 +111,67 @@ func (c *UsuarioController) Post() {
 		}
 
 		fmt.Println("Respuesta de la API (Usuario):", string(reponseUsuario))
+
+		// Extraer el ID del usuario creado
+		var usuarioResponse map[string]interface{}
+		if err := json.Unmarshal(reponseUsuario, &usuarioResponse); err != nil {
+			fmt.Println("Error al parsear respuesta de usuario:", err)
+			return
+		}
+
+		var usuarioID float64
+		if data, ok := usuarioResponse["Data"].(map[string]interface{}); ok {
+			if id, exists := data["Id"].(float64); exists {
+				usuarioID = id
+			} else {
+				fmt.Println("Error: No se encontró el ID en la respuesta de Usuario")
+				return
+			}
+		} else {
+			fmt.Println("Error: Estructura de respuesta de usuario no válida")
+			return
+		}
+
+		// 🔹 Buscar el ID del Rol en la tabla `Roles`
+		rolNombre := body_ingreso["rol"].(string) // Extrae el rol enviado en la solicitud
+		var responseRol []byte
+		responseRol, err = services.Metodo_get("API_CRUD", "/v1/Roles?query=nombre:", rolNombre)
+
+		if err != nil {
+			fmt.Println("Error al obtener el rol:", err)
+			return
+		}
+
+		var rolResponse map[string]interface{}
+		if err := json.Unmarshal(responseRol, &rolResponse); err != nil {
+			fmt.Println("Error al parsear respuesta de roles:", err)
+			return
+		}
+
+		var rolID float64
+		if roles, ok := rolResponse["Data"].([]interface{}); ok && len(roles) > 0 {
+			if rolData, exists := roles[0].(map[string]interface{}); exists {
+				rolID = rolData["Id"].(float64)
+			}
+		} else {
+			fmt.Println("Error: No se encontró el rol en la base de datos")
+			return
+		}
+
+		// 🔹 Crear registro en `RolesUsuario`
+		jsonRolUsuario := map[string]interface{}{
+			"FkUsuarioRoles": map[string]interface{}{
+				"Id": usuarioID,
+			},
+			"FkRolesUsuario": map[string]interface{}{
+				"Id": rolID,
+			},
+		}
+
+		json_rol_usuario_byte, _ := json.Marshal(jsonRolUsuario)
+		responseRolUsuario, _ = services.Metodo_post("API_CRUD", "/v1/Roles_Usuario", json_rol_usuario_byte)
+
+		fmt.Println("Respuesta de la API (RolesUsuario):", string(responseRolUsuario))
 	}
 
 	c.Data["json"] = map[string]interface{}{
