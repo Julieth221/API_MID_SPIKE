@@ -132,7 +132,7 @@ func (c *UsuarioController) Post() {
 			return
 		}
 
-		// 🔹 Buscar el ID del Rol en la tabla `Roles`
+		// Buscar el ID del Rol en la tabla Roles
 		rolNombre := body_ingreso["rol"].(string) // Extrae el rol enviado en la solicitud
 		var responseRol []byte
 		responseRol, err = services.Metodo_get("API_CRUD", "/v1/Roles?query=nombre:", rolNombre)
@@ -158,7 +158,7 @@ func (c *UsuarioController) Post() {
 			return
 		}
 
-		// 🔹 Crear registro en `RolesUsuario`
+		// Crear registro en RolesUsuario
 		jsonRolUsuario := map[string]interface{}{
 			"FkUsuarioRoles": map[string]interface{}{
 				"Id": usuarioID,
@@ -537,5 +537,85 @@ func handleError(c *UsuarioController, mensaje string, err error) {
 // @Failure 403 id is empty
 // @router /:id [delete]
 func (c *UsuarioController) Delete() {
+	// Obtener el ID del usuario de la URL
+	idUsuario := c.Ctx.Input.Param(":id")
+	fmt.Println("ID de usuario a eliminar:", idUsuario)
 
+	// Verificar si el usuario existe en la base de datos
+	responseUsuario, err := services.Metodo_get("API_CRUD", "/v1/Usuario/", idUsuario)
+	if err != nil || len(responseUsuario) == 0 {
+		fmt.Println("Error: Usuario no encontrado o fallo en la consulta")
+		c.Data["json"] = map[string]interface{}{
+			"error": "Usuario no encontrado",
+		}
+		c.ServeJSON()
+		return
+	}
+
+	// Extraer información del usuario
+	var usuario map[string]interface{}
+	if err := json.Unmarshal(responseUsuario, &usuario); err != nil {
+		fmt.Println("Error al parsear respuesta de usuario:", err)
+		return
+	}
+
+	// Extraer el ID de la credencial asociada
+	var credencialID float64
+	if data, ok := usuario["Data"].(map[string]interface{}); ok {
+		if fkCredencial, exists := data["FkCredencial"].(map[string]interface{}); exists {
+			credencialID = fkCredencial["Id"].(float64)
+		}
+	} else {
+		fmt.Println("Error: No se encontró la credencial asociada")
+	}
+
+	// **Paso 1: Obtener los roles del usuario**
+	rolesResponse, err := services.Metodo_get("API_CRUD", "/v1/Roles_Usuario?query=FkUsuarioRoles.Id:", idUsuario)
+	if err != nil {
+		fmt.Println("Error al obtener roles del usuario:", err)
+	} else {
+		// Extraer IDs de los roles y eliminarlos uno por uno
+		var rolesResponseData map[string]interface{}
+		if err := json.Unmarshal(rolesResponse, &rolesResponseData); err == nil {
+			if rolesData, ok := rolesResponseData["Data"].([]interface{}); ok {
+				for _, r := range rolesData {
+					if role, valid := r.(map[string]interface{}); valid {
+						if roleID, exists := role["Id"].(float64); exists {
+							roleIDStr := fmt.Sprintf("%.0f", roleID)
+							_, err = services.Metodo_delete("API_CRUD", "/v1/Roles_Usuario/", roleIDStr)
+							if err != nil {
+								fmt.Println("Error al eliminar el rol:", roleIDStr, err)
+							}
+						}
+					}
+				}
+			} else {
+				fmt.Println("Error: Formato de respuesta inesperado en roles.")
+			}
+		} else {
+			fmt.Println("Error al parsear la respuesta de roles:", err)
+		}
+	}
+
+	// **Paso 2: Eliminar el usuario de la tabla Usuario**
+	_, err = services.Metodo_delete("API_CRUD", "/v1/Usuario/", idUsuario)
+	if err != nil {
+		fmt.Println("Error al eliminar usuario:", err)
+		c.Data["json"] = map[string]interface{}{
+			"error": "No se pudo eliminar el usuario",
+		}
+		c.ServeJSON()
+		return
+	}
+
+	// **Paso 3: Eliminar la credencial asociada**
+	if credencialID > 0 {
+		_, err = services.Metodo_delete("API_CRUD", "/v1/Credenciales/", fmt.Sprintf("%.0f", credencialID))
+		if err != nil {
+			fmt.Println("Error al eliminar credenciales del usuario:", err)
+		}
+	}
+	// **Respuesta exitosa**
+	c.Data["json"] = map[string]interface{}{"message": "Usuario eliminado exitosamente"}
+	c.ServeJSON()
 }
