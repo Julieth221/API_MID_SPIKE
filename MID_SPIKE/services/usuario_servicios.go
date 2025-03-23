@@ -180,6 +180,50 @@ func Metodo_patch(nombre_servicio, endpoint, id string, data []byte) ([]byte, er
 	return body, nil
 }
 
+// Metodo Delete
+func Metodo_delete(nombre_servicio, endpoint, id string) ([]byte, error) {
+	baseURL := beego.AppConfig.String(nombre_servicio)
+	if baseURL == "" {
+		return nil, fmt.Errorf("no se encontró la configuración para %s", nombre_servicio)
+	}
+
+	// Asegurar que la URL tiene "http://"
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "http://" + baseURL
+	}
+
+	url := fmt.Sprintf("%s%s/%s", baseURL, endpoint, id)
+	fmt.Println("URL construida:", url)
+
+	// Crear la solicitud DELETE
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error al crear la solicitud DELETE: %v", err)
+	}
+
+	// Enviar la solicitud
+	client := &http.Client{}
+	response, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error en DELETE a %s: %v", url, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNoContent {
+		body, _ := ioutil.ReadAll(response.Body)
+		return nil, fmt.Errorf("error en API DELETE: %d - %s", response.StatusCode, string(body))
+	}
+
+	// Leer la respuesta
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error al leer la respuesta: %v", err)
+	}
+
+	fmt.Println("Respuesta de la API:", string(body))
+	return body, nil
+}
+
 // GenerarToken crea un token de 5 dígitos aleatorios y lo hashea
 func GenerarToken() (string, string, error) {
 	token := fmt.Sprintf("%05d", 10000+rand.Intn(90000)) // Token de 5 dígitos
