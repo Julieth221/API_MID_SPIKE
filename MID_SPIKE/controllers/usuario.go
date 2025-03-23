@@ -215,6 +215,72 @@ func (c *UsuarioController) GeneraryEnviarToken() {
 
 }
 
+// @Title ValidarToken
+// @Description Verifica si el token es válido
+// @Param	token	query	string	true	"Token de recuperación"
+// @Param	correo	query	string	true	"Correo electrónico del usuario"
+// @Success 200 {object} map[string]string "Token válido"
+// @Failure 400 "Token inválido"
+// @Failure 403 "Faltan parámetros"
+// @router /validartoken [get]
+func (c *UsuarioController) ValidarToken() {
+	fmt.Println("Función GET: Validar Token")
+
+	// Obtener token y correo desde los parámetros de la URL
+	tokenIngresado := c.GetString("token")
+	correo := c.GetString("correo")
+
+	// Validar que ambos parámetros estén presentes
+	if tokenIngresado == "" || correo == "" {
+		handleError(c, "Debe proporcionar el token y el correo electrónico", nil)
+		return
+	}
+
+	// Buscar usuario por correo
+	usuario, err := obtenerUsuarioPorCorreo(correo)
+	if err != nil {
+		handleError(c, "El usuario no existe", err)
+		return
+	}
+
+	// Obtener ID de credencial
+	credencialID, err := obtenerFkCredencialID(usuario)
+	if err != nil {
+		handleError(c, "El usuario no tiene credenciales asociadas", err)
+		return
+	}
+	fmt.Println("ID de la credencial: ", credencialID)
+
+	// Obtener la credencial
+	credencial, err := obtenerCredencialPorID(credencialID)
+	if err != nil {
+		handleError(c, "Error al obtener la credencial del usuario", err)
+		return
+	}
+	fmt.Println("Este es la credencial actual: ", credencial)
+
+	// Obtener el token almacenado en la credencial
+	tokenGuardado, tieneTokenGuardado := credencial["Token"].(string)
+	if !tieneTokenGuardado {
+		handleError(c, "No hay token almacenado para este usuario", nil)
+		return
+	}
+
+	// Validar token usando VerificarToken
+	if !services.VerificarToken(tokenIngresado, tokenGuardado) {
+		handleError(c, "Token inválido o expirado", nil)
+		return
+	}
+	fmt.Println("Token ingresado:", tokenIngresado)
+	fmt.Println("Token guardado:", tokenGuardado)
+
+	fmt.Println("Token válido, procediendo con el cambio de contraseña...")
+
+	// Responder con éxito
+	c.Data["json"] = map[string]string{"mensaje": "Token válido"}
+	c.ServeJSON()
+}
+
 // Put ...
 // @Title ActualizarContraseña
 // @Description update the Usuario_controller.Go
@@ -235,19 +301,18 @@ func (c *UsuarioController) ActualizarContraseña() {
 	}
 	fmt.Println("Este es el body de ingreso:", body)
 
-	// Validar que el token y la nueva contraseña estén en la solicitud
-	tokenIngresado, tieneToken := body["token"].(string)
+	// Validar que la nueva contraseña esté en la solicitud
 	nuevaContraseña, tieneNuevaContraseña := body["contraseña"].(string)
-	if !tieneToken || !tieneNuevaContraseña {
-		handleError(c, "Debe proporcionar el token y la nueva contraseña", nil)
+	if !tieneNuevaContraseña {
+		handleError(c, "Debe proporcionar la nueva contraseña", nil)
 		return
 	}
-	fmt.Println("nueva contraseña", nuevaContraseña)
+	fmt.Println("Nueva contraseña:", nuevaContraseña)
 
 	// Validar correo
-	correo, ok := body["CorreoElectronico"].(string)
+	correo, ok := body["correo"].(string)
 	if !ok {
-		handleError(c, "Campo CorreoElectronico inválido", nil)
+		handleError(c, "Campo 'correo' inválido o no proporcionado", nil)
 		return
 	}
 
@@ -259,50 +324,31 @@ func (c *UsuarioController) ActualizarContraseña() {
 	}
 	fmt.Println("Usuario encontrado:", usuario)
 
-	// Obtener ID de credencial
+	// Obtener ID de credencial actual
 	credencialID, err := obtenerFkCredencialID(usuario)
 	if err != nil {
 		handleError(c, "El usuario no tiene credenciales asociadas", err)
 		return
 	}
-	fmt.Println("ID de la credencial1:", credencialID)
-
-	// Obtener la credencial actual
-	credencial, err := obtenerCredencialPorID(credencialID)
-	if err != nil {
-		handleError(c, "Error al obtener la credencial del usuario", err)
-		return
-	}
-	fmt.Println("ID de la credencial2:", credencial)
-
-	// Validar token
-	tokenGuardado, tieneTokenGuardado := credencial["Token"].(string)
-	if !tieneTokenGuardado {
-		handleError(c, "No se encontró el token en la credencial", nil)
-		return
-	}
-	fmt.Println("Token ingresado:", tokenIngresado)
-	fmt.Println("Token guardado:", tokenGuardado)
-
-	fmt.Println("Token válido, procediendo con el cambio de contraseña...")
+	fmt.Println("ID de la credencial actual:", credencialID)
 
 	// Desactivar la credencial actual
 	if err := desactivarCredencial(credencialID); err != nil {
 		handleError(c, "Error al desactivar la contraseña actual", err)
 		return
 	}
-	fmt.Println("Desactivar credencial: ")
+	fmt.Println("Credencial actual desactivada")
 
 	// Crear nueva credencial con la nueva contraseña
 	jsonCredencial := map[string]interface{}{
-		"contraseña": body["contraseña"],
+		"contraseña": nuevaContraseña,
 	}
-	fmt.Println("Este es el JSON para credenciales:", jsonCredencial)
+	fmt.Println("JSON para credenciales:", jsonCredencial)
 
-	json_credencial_byte, _ := json.Marshal(jsonCredencial)
-	responseCredencial, err = services.Metodo_post("API_CRUD", "/v1/Credenciales", json_credencial_byte)
+	jsonCredencialByte, _ := json.Marshal(jsonCredencial)
+	responseCredencial, err = services.Metodo_post("API_CRUD", "/v1/Credenciales", jsonCredencialByte)
 	if err != nil {
-		fmt.Println("Error al crear credenciales:", err)
+		handleError(c, "Error al crear la nueva credencial", err)
 		return
 	}
 	fmt.Println("Respuesta de la API (Credenciales):", string(responseCredencial))
@@ -310,21 +356,14 @@ func (c *UsuarioController) ActualizarContraseña() {
 	// Obtener el ID de la nueva credencial
 	var credencialResponse map[string]interface{}
 	if err := json.Unmarshal(responseCredencial, &credencialResponse); err != nil {
-		fmt.Println("Error al parsear respuesta de credenciales:", err)
+		handleError(c, "Error al parsear la respuesta de credenciales", err)
 		return
 	}
 
 	// Extraer el ID de la nueva credencial
-	var newCredencialID float64
-	if data, ok := credencialResponse["Data"].(map[string]interface{}); ok {
-		if id, exists := data["Id"].(float64); exists {
-			newCredencialID = id
-		} else {
-			fmt.Println("Error: No se encontró el ID en la respuesta de Credenciales")
-			return
-		}
-	} else {
-		fmt.Println("Error: Estructura de respuesta de credenciales no válida")
+	newCredencialID, ok := credencialResponse["Data"].(map[string]interface{})["Id"].(float64)
+	if !ok {
+		handleError(c, "No se encontró el ID en la respuesta de Credenciales", nil)
 		return
 	}
 	fmt.Println("Nuevo ID de credencial:", newCredencialID)
@@ -407,45 +446,6 @@ func desactivarCredencial(credencialID string) error {
 	fmt.Println("Este es el reponse de la actualizacion del campo activo:", string(campoactivo))
 	return err
 }
-
-// func crearNuevaCredencial(nuevaContraseña string) (string, error) {
-// 	// Construir el objeto JSON con la nueva contraseña.
-// 	newCredData := map[string]interface{}{
-// 		"contraseña": nuevaContraseña,
-// 	}
-// 	newCredJSON, err := json.Marshal(newCredData)
-// 	if err != nil {
-// 		return "", err
-// 	}
-
-// 	// Enviar la solicitud POST a la API CRUD para crear la credencial.
-// 	responseCred, err := services.Metodo_post("API_CRUD", "/v1/Credenciales", newCredJSON)
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	// Imprimir la respuesta para ver qué se recibe
-// 	fmt.Println("Respuesta de la API en crearNuevaCredencial:", string(responseCred))
-
-// 	// Procesar la respuesta obtenida.
-// 	var credResp map[string]interface{}
-// 	if err := json.Unmarshal(responseCred, &credResp); err != nil {
-// 		return "", err
-// 	}
-
-// 	// Se espera que la respuesta tenga la estructura {"Data": {"Id": <numero>, ...}}
-// 	data, ok := credResp["Data"].(map[string]interface{})
-// 	if !ok {
-// 		return "", errors.New("estructura de respuesta de credenciales no válida")
-// 	}
-
-// 	idValue, ok := data["Id"].(float64)
-// 	if !ok {
-// 		return "", errors.New("error al obtener el ID de la nueva credencial")
-// 	}
-
-// 	// Convertir el ID numérico a cadena.
-// 	return strconv.Itoa(int(idValue)), nil
-// }
 
 func actualizarFkCredencialUsuario(usuarioID, newCredencialID interface{}) error {
 	updateUserData := map[string]interface{}{
