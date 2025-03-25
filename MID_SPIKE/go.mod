@@ -1,15 +1,18 @@
 module github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE
 
+
 go 1.24.0
 
 require (
 	github.com/beego/beego v1.12.14
 	github.com/beego/beego/v2 v2.3.5
+
 	github.com/smartystreets/goconvey v1.8.1
 )
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
+
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
@@ -26,4 +29,5 @@ require (
 	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+
 )
