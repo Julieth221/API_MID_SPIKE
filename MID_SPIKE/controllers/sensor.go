@@ -1,11 +1,7 @@
 package controllers
 
 import (
-	"encoding/json"
-	"net/http"
-
 	"github.com/beego/beego"
-	"github.com/beego/beego/v2/server/web"
 )
 
 // SensorController operations for Sensor
@@ -47,29 +43,7 @@ func (c *SensorController) Post() {
 // @Failure 403 :id is empty
 // @router /:id [get]
 func (c *SensorController) GetOne() {
-	apiCrudUrl, _ := web.AppConfig.String("API_CRUD_SPIKE")
-	url := "http://" + apiCrudUrl + "/sensores" // Ruta del endpoint en API_CRUD_SPIKE
 
-	// Hacer la petición HTTP
-	resp, err := http.Get(url)
-	if err != nil {
-		c.Data["json"] = map[string]string{"error": "No se pudo conectar con API_CRUD_SPIKE"}
-		c.ServeJSON()
-		return
-	}
-	defer resp.Body.Close()
-
-	// Decodificar la respuesta
-	var sensores []Sensor
-	if err := json.NewDecoder(resp.Body).Decode(&sensores); err != nil {
-		c.Data["json"] = map[string]string{"error": "Error al leer la respuesta"}
-		c.ServeJSON()
-		return
-	}
-
-	// Enviar la respuesta de vuelta al cliente
-	c.Data["json"] = sensores
-	c.ServeJSON()
 }
 
 // GetAll ...
