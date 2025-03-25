@@ -44,8 +44,19 @@ func (c *UsuarioController) Post() {
 		}
 		fmt.Println("Body de ingreso en JSON:", string(jsonData))
 
+		passStr, _ := body_ingreso["contraseña"].(string)
+
+		// Hashear la contraseña
+		hashedPass, err := services.HashContraseña(passStr)
+		if err != nil {
+			fmt.Println(err)
+			c.Data["json"] = map[string]interface{}{"error": "Error interno al procesar la contraseña"}
+			c.ServeJSON()
+			return
+		}
+
 		jsonCredencial := map[string]interface{}{
-			"contraseña": body_ingreso["contraseña"],
+			"contraseña": hashedPass,
 		}
 		fmt.Println("este es el json para credenciales: ", jsonCredencial)
 
@@ -400,9 +411,18 @@ func (c *UsuarioController) ActualizarContraseña() {
 	}
 	fmt.Println("Credencial actual desactivada")
 
+	// Hashear la contraseña
+	hashedNewPass, err := services.HashContraseña(nuevaContraseña)
+	if err != nil {
+		fmt.Println(err)
+		c.Data["json"] = map[string]interface{}{"error": "Error interno al procesar la contraseña"}
+		c.ServeJSON()
+		return
+	}
+
 	// Crear nueva credencial con la nueva contraseña
 	jsonCredencial := map[string]interface{}{
-		"contraseña": nuevaContraseña,
+		"contraseña": hashedNewPass,
 	}
 	fmt.Println("JSON para credenciales:", jsonCredencial)
 
@@ -501,7 +521,7 @@ func obtenerCredencialPorID(credencialID string) (map[string]interface{}, error)
 }
 
 func desactivarCredencial(credencialID string) error {
-	updateData := map[string]interface{}{"activo": false}
+	updateData := map[string]interface{}{"activo": false, "token": ""}
 	updateJSON, _ := json.Marshal(updateData)
 	campoactivo, err := services.Metodo_patch("API_CRUD", "/v1/Credenciales", credencialID, updateJSON)
 	fmt.Println("Este es el reponse de la actualizacion del campo activo:", string(campoactivo))

@@ -292,3 +292,11 @@ func EnviarCorreo(destinatario string, token string) error {
 	fmt.Println("Correo enviado correctamente a", destinatario)
 	return nil
 }
+
+func HashContraseña(password string) (string, error) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("error al hashear la contraseña: %v", err)
+	}
+	return string(hashed), nil
+}
