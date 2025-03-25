@@ -108,6 +108,15 @@ func init() {
 
     beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:UsuarioController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:UsuarioController"],
         beego.ControllerComments{
+            Method: "Login",
+            Router: "/sistem/login",
+            AllowHTTPMethods: []string{"post"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:UsuarioController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:UsuarioController"],
+        beego.ControllerComments{
             Method: "ValidarToken",
             Router: "/validartoken",
             AllowHTTPMethods: []string{"get"},

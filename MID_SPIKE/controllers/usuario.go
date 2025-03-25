@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"spike/auth_JWT"
+
 	"github.com/astaxie/beego"
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
 	"golang.org/x/crypto/bcrypt"
@@ -708,16 +710,17 @@ func (c *UsuarioController) Login() {
 	}
 
 	// Si la validación es correcta, generar un token JWT
-	// token, err := utils.GenerarJWT(usuario) //  generar un token JWT basado en los datos del usuario
-	// if err != nil {
-	//     handleError(c, "Error al generar token", err)
-	//     return
-	// }
+	token, err := auth_JWT.GenerateJWT(usuario) //  generar un token JWT basado en los datos del usuario
+	if err != nil {
+		handleError(c, "Error al generar token", err)
+		return
+	}
+	fmt.Println(token)
 
 	fmt.Println("Login exitoso para el usuario:", correo)
 	c.Data["json"] = map[string]string{
 		"mensaje": "Login exitoso",
-		// "token": token, // Agregar el token si se implementa JWT
+		"token":   token,
 	}
 	c.ServeJSON()
 }
