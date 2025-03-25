@@ -8,18 +8,26 @@
 package routers
 
 import (
+
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers"
 
 	"github.com/beego/beego"
+
+
+
 )
 
 func init() {
 	ns := beego.NewNamespace("/v1",
-		beego.NSNamespace("/sensor",
-			beego.NSInclude(
-				&controllers.SensorController{},
-			),
-		),
+
+		// Rutas para el controlador de sensores
+		beego.NSNamespace("/sensores",
+            beego.NSInclude(
+                &controllers.SensorController{},
+            ),
+        ),
 	)
+	// beego.NSNamespace("/object",
+
 	beego.AddNamespace(ns)
 }
