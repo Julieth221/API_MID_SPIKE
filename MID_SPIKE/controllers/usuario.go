@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"spike/auth_JWT"
-
 	"github.com/astaxie/beego"
+	auth_JWT "github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/auth_jwt"
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -681,6 +680,13 @@ func (c *UsuarioController) Login() {
 	}
 	fmt.Println("Usuario encontrado:", usuario)
 
+	usuarioID, ok := usuario["Id"].(float64)
+	if !ok {
+		handleError(c, "No se pudo obtener el ID del usuario", nil)
+		return
+	}
+	fmt.Println("ID del usuario:", int(usuarioID))
+
 	// Obtener el ID de la credencial asociada
 	credencialID, err := obtenerFkCredencialID(usuario)
 	if err != nil {
@@ -708,9 +714,64 @@ func (c *UsuarioController) Login() {
 		handleError(c, "Credenciales inválidas", err)
 		return
 	}
+	usuarioIDStr := fmt.Sprintf("%.0f", usuarioID) // Convertir a string
 
+	// Primera consulta: Obtener FkRolesUsuario desde Roles_Usuario**
+	rolesUsuarioResponse, err := services.Metodo_get("API_CRUD", "/v1/Roles_Usuario?query=FkUsuarioRoles.Id:", usuarioIDStr)
+	if err != nil {
+		handleError(c, "Error al obtener el rol del usuario", err)
+		return
+	}
+	fmt.Println("Este es el response de la API Roles_Usuario", string(rolesUsuarioResponse))
+
+	var fkRolesUsuario string
+	var rolesUsuarioData map[string]interface{}
+	if err := json.Unmarshal(rolesUsuarioResponse, &rolesUsuarioData); err == nil {
+		if roles, ok := rolesUsuarioData["Data"].([]interface{}); ok && len(roles) > 0 {
+			if role, valid := roles[0].(map[string]interface{}); valid {
+				if fkRolObj, exists := role["FkRolesUsuario"].(map[string]interface{}); exists {
+					if fkRolID, ok := fkRolObj["Id"].(float64); ok {
+						fkRolesUsuario = fmt.Sprintf("%.0f", fkRolID)
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println("este es el fkRolesUsuario: ", fkRolesUsuario)
+
+	if fkRolesUsuario == "" {
+		handleError(c, "No se encontró una relación de rol para el usuario", nil)
+		return
+	}
+	fmt.Println("FkRolesUsuario obtenido:", fkRolesUsuario)
+
+	// **Segunda consulta: Obtener Nombre del rol desde Roles**
+	rolesResponse, err := services.Metodo_get("API_CRUD", "/v1/Roles?query=Id:", fkRolesUsuario)
+	if err != nil {
+		handleError(c, "Error al obtener el nombre del rol", err)
+		return
+	}
+
+	var rolUsuario string
+	var rolesData map[string]interface{}
+	if err := json.Unmarshal(rolesResponse, &rolesData); err == nil {
+		if roles, ok := rolesData["Data"].([]interface{}); ok && len(roles) > 0 {
+			if role, valid := roles[0].(map[string]interface{}); valid {
+				if nombreRol, exists := role["Nombre"].(string); exists {
+					rolUsuario = nombreRol
+				}
+			}
+		}
+	}
+
+	if rolUsuario == "" {
+		handleError(c, "No se encontró el nombre del rol asociado", nil)
+		return
+	}
+	fmt.Println("Rol del usuario:", rolUsuario)
 	// Si la validación es correcta, generar un token JWT
-	token, err := auth_JWT.GenerateJWT(usuario) //  generar un token JWT basado en los datos del usuario
+	token, err := auth_JWT.GenerateJWT(int(usuarioID), correo, rolUsuario) //  generar un token JWT basado en los datos del usuario
 	if err != nil {
 		handleError(c, "Error al generar token", err)
 		return
@@ -720,7 +781,7 @@ func (c *UsuarioController) Login() {
 	fmt.Println("Login exitoso para el usuario:", correo)
 	c.Data["json"] = map[string]string{
 		"mensaje": "Login exitoso",
-		"token":   token,
+		// "token":   token,
 	}
 	c.ServeJSON()
 }

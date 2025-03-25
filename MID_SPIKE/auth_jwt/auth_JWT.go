@@ -1,13 +1,14 @@
 package auth_JWT
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
-	"golang-jwt/jwt/v4"
+	"github.com/astaxie/beego/context"
+
+	"github.com/golang-jwt/jwt/v4"
 )
 
 // jwtSecret se carga desde la variable de entorno JWT_SECRET
