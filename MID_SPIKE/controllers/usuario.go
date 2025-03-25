@@ -8,6 +8,7 @@ import (
 
 	"github.com/astaxie/beego"
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Usuario_controller.GoController operations for Usuario_controller.Go
@@ -589,7 +590,7 @@ func (c *UsuarioController) Delete() {
 		fmt.Println("Error: No se encontró la credencial asociada")
 	}
 
-	// **Paso 1: Obtener los roles del usuario**
+	// Obtener los roles del usuario
 	rolesResponse, err := services.Metodo_get("API_CRUD", "/v1/Roles_Usuario?query=FkUsuarioRoles.Id:", idUsuario)
 	if err != nil {
 		fmt.Println("Error al obtener roles del usuario:", err)
@@ -617,7 +618,7 @@ func (c *UsuarioController) Delete() {
 		}
 	}
 
-	// **Paso 2: Eliminar el usuario de la tabla Usuario**
+	//Eliminar el usuario de la tabla Usuario
 	_, err = services.Metodo_delete("API_CRUD", "/v1/Usuario/", idUsuario)
 	if err != nil {
 		fmt.Println("Error al eliminar usuario:", err)
@@ -628,7 +629,7 @@ func (c *UsuarioController) Delete() {
 		return
 	}
 
-	// **Paso 3: Eliminar la credencial asociada**
+	// Eliminar la credencial asociada
 	if credencialID > 0 {
 		_, err = services.Metodo_delete("API_CRUD", "/v1/Credenciales/", fmt.Sprintf("%.0f", credencialID))
 		if err != nil {
@@ -637,5 +638,86 @@ func (c *UsuarioController) Delete() {
 	}
 	// **Respuesta exitosa**
 	c.Data["json"] = map[string]interface{}{"message": "Usuario eliminado exitosamente"}
+	c.ServeJSON()
+}
+
+// Post ...
+// @Title Login
+// @Description create Usuario_controller.Go
+// @Param	body		body 	models.Usuario_controller.Go	true		"body for Usuario_controller.Go content"
+// @Success 201 {object} models.Usuario_controller.Go
+// @Failure 403 body is empty
+// @router /sistem/login [post]
+func (c *UsuarioController) Login() {
+	fmt.Println("Función POST: Login")
+	var body map[string]interface{}
+
+	// Leer el cuerpo de la solicitud
+	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
+		handleError(c, "Solicitud inválida", err)
+		return
+	}
+	fmt.Println("Datos de login recibidos:", body)
+
+	// Validar que se hayan enviado el correo y la contraseña
+	correo, ok := body["CorreoElectronico"].(string)
+	if !ok || correo == "" {
+		handleError(c, "El campo 'CorreoElectronico' es obligatorio", nil)
+		return
+	}
+	password, ok := body["contraseña"].(string)
+	if !ok || password == "" {
+		handleError(c, "El campo 'contraseña' es obligatorio", nil)
+		return
+	}
+
+	// Buscar usuario por correo
+	usuario, err := obtenerUsuarioPorCorreo(correo)
+	if err != nil {
+		handleError(c, "El usuario no existe", err)
+		return
+	}
+	fmt.Println("Usuario encontrado:", usuario)
+
+	// Obtener el ID de la credencial asociada
+	credencialID, err := obtenerFkCredencialID(usuario)
+	if err != nil {
+		handleError(c, "No se encontraron credenciales asociadas", err)
+		return
+	}
+	fmt.Println("ID de la credencial:", credencialID)
+
+	// Obtener la credencial (incluyendo la contraseña hasheada)
+	credencial, err := obtenerCredencialPorID(credencialID)
+	if err != nil {
+		handleError(c, "Error al obtener la credencial del usuario", err)
+		return
+	}
+	fmt.Println("Credencial obtenida:", credencial)
+
+	// Comparar la contraseña ingresada con la almacenada
+	storedPass, ok := credencial["Contraseña"].(string)
+	if !ok || storedPass == "" {
+		handleError(c, "La contraseña almacenada es inválida", nil)
+		return
+	}
+	err = bcrypt.CompareHashAndPassword([]byte(storedPass), []byte(password))
+	if err != nil {
+		handleError(c, "Credenciales inválidas", err)
+		return
+	}
+
+	// Si la validación es correcta, generar un token JWT
+	// token, err := utils.GenerarJWT(usuario) //  generar un token JWT basado en los datos del usuario
+	// if err != nil {
+	//     handleError(c, "Error al generar token", err)
+	//     return
+	// }
+
+	fmt.Println("Login exitoso para el usuario:", correo)
+	c.Data["json"] = map[string]string{
+		"mensaje": "Login exitoso",
+		// "token": token, // Agregar el token si se implementa JWT
+	}
 	c.ServeJSON()
 }
