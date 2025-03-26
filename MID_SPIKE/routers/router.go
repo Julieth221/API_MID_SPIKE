@@ -33,11 +33,25 @@ func init() {
 		// ),
 
 		// Rutas para el controlador de autenticación
+<<<<<<< HEAD
 		// beego.NSNamespace("/auth",
 		// 	beego.NSInclude(
 		// 		&controllers.Autenticacion_usuarioController{},
 		// 	),
 		// ),
+=======
+		beego.NSNamespace("/auth",
+			beego.NSInclude(
+				&controllers.Autenticacion_usuarioController{},
+			),
+		),
+
+		beego.NSNamespace("/finca",
+			beego.NSInclude(
+				&controllers.Gestion_fincaController{},
+			),
+		),
+>>>>>>> 78cd5e00d6587a3492928b10f609d22e433b7c16
 	)
 	// beego.NSNamespace("/object",
 

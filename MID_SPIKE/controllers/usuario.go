@@ -746,7 +746,7 @@ func (c *UsuarioController) Login() {
 	}
 	fmt.Println("FkRolesUsuario obtenido:", fkRolesUsuario)
 
-	// **Segunda consulta: Obtener Nombre del rol desde Roles**
+	// Segunda consulta: Obtener Nombre del rol desde Roles
 	rolesResponse, err := services.Metodo_get("API_CRUD", "/v1/Roles?query=Id:", fkRolesUsuario)
 	if err != nil {
 		handleError(c, "Error al obtener el nombre del rol", err)
@@ -781,7 +781,7 @@ func (c *UsuarioController) Login() {
 	fmt.Println("Login exitoso para el usuario:", correo)
 	c.Data["json"] = map[string]string{
 		"mensaje": "Login exitoso",
-		// "token":   token,
+		"token":   token,
 	}
 	c.ServeJSON()
 }
