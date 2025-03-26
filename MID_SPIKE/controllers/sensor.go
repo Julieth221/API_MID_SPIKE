@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/beego/beego"
+	"github.com/astaxie/beego"
 	"gorm.io/gorm"
 )
 

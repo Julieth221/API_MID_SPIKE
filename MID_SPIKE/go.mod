@@ -7,6 +7,7 @@ require (
 	github.com/beego/beego v1.12.14
 	github.com/beego/beego/v2 v2.3.5
 	github.com/smartystreets/goconvey v1.8.1
+	gorm.io/gorm v1.25.12 
 )
 
 require (
@@ -29,5 +30,4 @@ require (
 	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gorm.io/gorm v1.25.12 // indirect
 )
