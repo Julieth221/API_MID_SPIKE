@@ -8,13 +8,12 @@
 package routers
 
 import (
-
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers"
 
 	"github.com/beego/beego"
+	
 
-
-
+	// "github.com/astaxie/beego"
 )
 
 func init() {
@@ -22,10 +21,23 @@ func init() {
 
 		// Rutas para el controlador de sensores
 		beego.NSNamespace("/sensores",
-            beego.NSInclude(
-                &controllers.SensorController{},
-            ),
-        ),
+			beego.NSInclude(
+				&controllers.SensorController{},
+			),
+		),
+		// Rutas para el controlador de usuarios
+		// beego.NSNamespace("/usuarios",
+		// 	beego.NSInclude(
+		// 		&controllers.UsuarioController{},
+		// 	),
+		// ),
+
+		// Rutas para el controlador de autenticación
+		// beego.NSNamespace("/auth",
+		// 	beego.NSInclude(
+		// 		&controllers.Autenticacion_usuarioController{},
+		// 	),
+		// ),
 	)
 	// beego.NSNamespace("/object",
 

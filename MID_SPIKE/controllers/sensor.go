@@ -73,7 +73,6 @@ func (c *SensorController) Post() {
 	c.ServeJSON()
 }
 
-
 // GetOne ...
 // @Title GetOne
 // @Description get Sensor by id
@@ -122,7 +121,7 @@ func (c *SensorController) GetAll() {
 	// Obtener parámetros de la URL (filtros)
 	nombreSensor := c.GetString("nombre_sensor")
 	tipoSensor := c.GetString("fk_tipo_sensor")
-	limit, _ := c.GetInt("limit", 10)   // Número de resultados por página (default: 10)
+	limit, _ := c.GetInt("limit", 10)  // Número de resultados por página (default: 10)
 	offset, _ := c.GetInt("offset", 0) // Paginación (default: 0)
 
 	// Construir consulta con filtros opcionales
@@ -209,7 +208,6 @@ func (c *SensorController) Put() {
 	c.Data["json"] = sensor
 	c.ServeJSON()
 }
-
 
 // Delete ...
 // @Title Delete
