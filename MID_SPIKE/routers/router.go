@@ -28,6 +28,12 @@ func init() {
 				&controllers.Autenticacion_usuarioController{},
 			),
 		),
+
+		beego.NSNamespace("/finca",
+			beego.NSInclude(
+				&controllers.Gestion_fincaController{},
+			),
+		),
 	)
 	// beego.NSNamespace("/object",
 
