@@ -3,11 +3,12 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/astaxie/beego"
+	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/models"
 	"gorm.io/gorm"
 )
 
@@ -15,13 +16,6 @@ import (
 type SensorController struct {
 	beego.Controller
 	DB *gorm.DB
-}
-type Sensor struct {
-	Id               int       `orm:"column(id_sensor);pk;auto"`
-	NombreSensor     string    `orm:"column(nombre_sensor)"`
-	FkTipoSensor     string    `orm:"column(fk_tipo_sensor);rel(fk)"`
-	Activo           bool      `orm:"column(activo)"`
-	FechaInstalacion time.Time `orm:"column(fecha_instalacion);type(timestamp with time zone);auto_now_add"`
 }
 
 // URLMapping ...
@@ -41,7 +35,7 @@ func (c *SensorController) URLMapping() {
 // @Failure 403 body is empty
 // @router / [post]
 func (c *SensorController) Post() {
-	var sensor Sensor
+	var sensor models.Sensor
 
 	// Leer el cuerpo de la solicitud y convertirlo a una estructura Sensor
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &sensor); err != nil {
@@ -81,26 +75,42 @@ func (c *SensorController) Post() {
 // @Failure 403 :id is empty
 // @router /:id [get]
 func (c *SensorController) GetOne() {
-	// Obtener el ID del sensor desde la URL
-	id := c.Ctx.Input.Param(":id")
+	// Nombre del servicio en app.conf
+	nombreServicio := "API_CRUD_SENSOR"
 
-	var sensor Sensor
-	// Buscar el sensor en la base de datos
-	if err := c.DB.First(&sensor, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.Ctx.Output.SetStatus(http.StatusNotFound)
-			c.Data["json"] = map[string]string{"error": "Sensor no encontrado"}
-		} else {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]string{"error": "Error al obtener el sensor"}
-		}
-		c.ServeJSON()
-		return
+	// Endpoint del servicio de sensores con ID
+	endpoint := "sensores"
+
+	// Parámetro: ID del sensor
+	parametro := ""
+
+	// Llamar al método GET
+	respuesta, err := Metodo.Get(nombreServicio, endpoint, parametro)
+	if err != nil {
+		return nil, fmt.Errorf("error al obtener el sensor: %v", err)
 	}
 
-	// Si el sensor existe, devolver los datos en formato JSON
-	c.Data["json"] = sensor
-	c.ServeJSON()
+	// Decodificar JSON en la estructura Sensor
+	var sensor models.Sensor
+	if err := json.Unmarshal(respuesta, &sensor); err != nil {
+		return nil, fmt.Errorf("error al procesar la respuesta: %v", err)
+	}
+
+	return &sensor, nil
+}
+
+func main() {
+	// ID del sensor a buscar
+	sensorID := "5"
+
+	// Obtener el sensor
+	sensor, err := GetOneSensor(sensorID)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+
+	// Mostrar el sensor
+	fmt.Printf("Sensor encontrado: %+v\n", sensor)
 }
 
 // GetAll ...
@@ -116,34 +126,7 @@ func (c *SensorController) GetOne() {
 // @Failure 403
 // @router / [get]
 func (c *SensorController) GetAll() {
-	var sensores []Sensor
 
-	// Obtener parámetros de la URL (filtros)
-	nombreSensor := c.GetString("nombre_sensor")
-	tipoSensor := c.GetString("fk_tipo_sensor")
-	limit, _ := c.GetInt("limit", 10)  // Número de resultados por página (default: 10)
-	offset, _ := c.GetInt("offset", 0) // Paginación (default: 0)
-
-	// Construir consulta con filtros opcionales
-	query := c.DB.Model(&Sensor{})
-	if nombreSensor != "" {
-		query = query.Where("nombre_sensor LIKE ?", "%"+nombreSensor+"%")
-	}
-	if tipoSensor != "" {
-		query = query.Where("fk_tipo_sensor = ?", tipoSensor)
-	}
-
-	// Obtener los sensores con paginación
-	if err := query.Limit(limit).Offset(offset).Find(&sensores).Error; err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]string{"error": "Error al obtener los sensores"}
-		c.ServeJSON()
-		return
-	}
-
-	// Responder con la lista de sensores
-	c.Data["json"] = sensores
-	c.ServeJSON()
 }
 
 // Put ...
@@ -165,7 +148,7 @@ func (c *SensorController) Put() {
 	}
 
 	// Buscar el sensor en la base de datos
-	var sensor Sensor
+	var sensor models.Sensor
 	if err := c.DB.First(&sensor, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.Ctx.Output.SetStatus(http.StatusNotFound)
@@ -179,7 +162,7 @@ func (c *SensorController) Put() {
 	}
 
 	// Leer los nuevos datos desde el cuerpo de la solicitud
-	var updatedData Sensor
+	var updatedData models.Sensor
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &updatedData); err != nil {
 		c.Ctx.Output.SetStatus(http.StatusBadRequest)
 		c.Data["json"] = map[string]string{"error": "Formato JSON inválido"}
@@ -222,7 +205,7 @@ func (c *SensorController) Delete() {
 
 	// Si hay un ID en la URL, eliminamos solo ese sensor
 	if id != "" {
-		if err := c.DB.Delete(&Sensor{}, id).Error; err != nil {
+		if err := c.DB.Delete(&models.Sensor{}, id).Error; err != nil {
 			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
 			c.Data["json"] = map[string]string{"error": fmt.Sprintf("No se pudo eliminar el sensor con ID %s", id)}
 			c.ServeJSON()
@@ -251,7 +234,7 @@ func (c *SensorController) Delete() {
 	}
 
 	// Eliminamos múltiples sensores
-	if err := c.DB.Delete(&Sensor{}, ids).Error; err != nil {
+	if err := c.DB.Delete(&models.Sensor{}, ids).Error; err != nil {
 		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
 		c.Data["json"] = map[string]string{"error": fmt.Sprintf("No se pudieron eliminar los sensores con IDs %s", strings.Trim(fmt.Sprint(ids), "[]"))}
 		c.ServeJSON()

@@ -11,14 +11,10 @@ import (
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers"
 
 	"github.com/astaxie/beego"
-	
-
-	// "github.com/astaxie/beego"
 )
 
 func init() {
 	ns := beego.NewNamespace("/v1",
-
 		// Rutas para el controlador de sensores
 		beego.NSNamespace("/sensores",
 			beego.NSInclude(
@@ -26,32 +22,17 @@ func init() {
 			),
 		),
 		// Rutas para el controlador de usuarios
-		// beego.NSNamespace("/usuarios",
-		// 	beego.NSInclude(
-		// 		&controllers.UsuarioController{},
-		// 	),
-		// ),
-
-		// Rutas para el controlador de autenticación
-<<<<<<< HEAD
-		// beego.NSNamespace("/auth",
-		// 	beego.NSInclude(
-		// 		&controllers.Autenticacion_usuarioController{},
-		// 	),
-		// ),
-=======
-		beego.NSNamespace("/auth",
+		beego.NSNamespace("/usuarios",
 			beego.NSInclude(
-				&controllers.Autenticacion_usuarioController{},
+				&controllers.UsuarioController{},
 			),
 		),
-
+		// Rutas para el controlador de gestión de finca
 		beego.NSNamespace("/finca",
 			beego.NSInclude(
 				&controllers.Gestion_fincaController{},
 			),
 		),
->>>>>>> 78cd5e00d6587a3492928b10f609d22e433b7c16
 	)
 	// beego.NSNamespace("/object",
 

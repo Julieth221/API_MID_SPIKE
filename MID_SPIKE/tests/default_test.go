@@ -10,7 +10,7 @@ import (
 
 	_ "github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/routers"
 
-	"github.com/beego/beego"
+	"github.com/astaxie/beego"
 	"github.com/beego/beego/v2/core/logs"
 
 	. "github.com/smartystreets/goconvey/convey"
