@@ -226,14 +226,15 @@ func relacionarFincaParcela(fincaID, parcelaID, geoID int) error {
 	return err
 }
 
-// GetOne ...
+// GetOne para mostrar finca
 // @Title GetOne
 // @Description get Gestion_finca by id
 // @Param	id		path 	string	true		"The key for staticblock"
 // @Success 200 {object} models.Gestion_finca
 // @Failure 403 :id is empty
-// @router /:id [get]
+// @router /nombrefinca [get]
 func (c *Gestion_fincaController) GetOne() {
+	fmt.Println("Este es el GetOne para finca")
 
 }
 
@@ -248,9 +249,50 @@ func (c *Gestion_fincaController) GetOne() {
 // @Param	offset	query	string	false	"Start position of result set. Must be an integer"
 // @Success 200 {object} models.Gestion_finca
 // @Failure 403
-// @router / [get]
+// @router /fincas [get]
 func (c *Gestion_fincaController) GetAll() {
+	fmt.Println("Obteniendo todas las fincas")
 
+	// Llamada al servicio para obtener todas las fincas
+	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Finca", "")
+	if err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al obtener fincas"}
+		c.ServeJSON()
+		return
+	}
+
+	// Parsear la respuesta
+	var data map[string]interface{}
+	if err := json.Unmarshal(response, &data); err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta"}
+		c.ServeJSON()
+		return
+	}
+
+	// Validar que hay datos disponibles
+	if fincas, ok := data["Data"].([]interface{}); ok {
+		var resultado []map[string]interface{}
+
+		// Construir respuesta con solo los campos requeridos
+		for _, finca := range fincas {
+			fincaMap := finca.(map[string]interface{})
+			fincaInfo := map[string]interface{}{
+				"Nombre":        fincaMap["Nombre"],
+				"AreaTotal":     fincaMap["AreaTotal"],
+				"TipoSuelo":     fincaMap["FkFinca"].(map[string]interface{})["Nombre"],
+				"TotalParcelas": fincaMap["TotalParcelas"],
+				"Id":            fincaMap["Id"],
+			}
+			resultado = append(resultado, fincaInfo)
+		}
+
+		// Responder con la lista de fincas
+		c.Data["json"] = resultado
+		c.ServeJSON()
+	} else {
+		c.Data["json"] = map[string]interface{}{"mensaje": "No hay fincas registradas"}
+		c.ServeJSON()
+	}
 }
 
 // Put ...
