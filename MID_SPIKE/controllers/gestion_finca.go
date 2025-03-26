@@ -249,9 +249,27 @@ func (c *Gestion_fincaController) GetOne() {
 // @Param	offset	query	string	false	"Start position of result set. Must be an integer"
 // @Success 200 {object} models.Gestion_finca
 // @Failure 403
-// @router /fincas [get]
+// @router / [get]
 func (c *Gestion_fincaController) GetAll() {
 	fmt.Println("Obteniendo todas las fincas")
+
+	// Obtener el ID del usuario desde el token JWT
+	token := c.Ctx.Input.Header("Authorization")
+	if token == "" {
+		c.Data["json"] = map[string]interface{}{"error": "No se proporcionó token"}
+		c.ServeJSON()
+		return
+	}
+
+	// Validar el token y extraer los claims
+	claims, err := auth_JWT.ValidarJWT(strings.TrimPrefix(token, "Bearer "))
+	if err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Token inválido o expirado"}
+		c.ServeJSON()
+		return
+	}
+
+	userID := claims.UserID // ID del usuario autenticado
 
 	// Llamada al servicio para obtener todas las fincas
 	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Finca", "")
@@ -273,21 +291,27 @@ func (c *Gestion_fincaController) GetAll() {
 	if fincas, ok := data["Data"].([]interface{}); ok {
 		var resultado []map[string]interface{}
 
-		// Construir respuesta con solo los campos requeridos
+		// Filtrar solo las fincas del usuario autenticado
 		for _, finca := range fincas {
 			fincaMap := finca.(map[string]interface{})
-			fincaInfo := map[string]interface{}{
-				"Nombre":        fincaMap["Nombre"],
-				"AreaTotal":     fincaMap["AreaTotal"],
-				"TipoSuelo":     fincaMap["FkFinca"].(map[string]interface{})["Nombre"],
-				"TotalParcelas": fincaMap["TotalParcelas"],
-				"Id":            fincaMap["Id"],
+			if int(fincaMap["Id_Usuario"].(float64)) == userID { // Filtrado por usuario
+				fincaInfo := map[string]interface{}{
+					"Nombre":        fincaMap["Nombre"],
+					"AreaTotal":     fincaMap["AreaTotal"],
+					"TipoSuelo":     fincaMap["FkFinca"].(map[string]interface{})["Nombre"],
+					"TotalParcelas": fincaMap["TotalParcelas"],
+					"Id":            fincaMap["Id"],
+				}
+				resultado = append(resultado, fincaInfo)
 			}
-			resultado = append(resultado, fincaInfo)
 		}
 
-		// Responder con la lista de fincas
-		c.Data["json"] = resultado
+		// Responder con la lista de fincas filtradas
+		if len(resultado) > 0 {
+			c.Data["json"] = resultado
+		} else {
+			c.Data["json"] = map[string]interface{}{"mensaje": "No tienes fincas registradas"}
+		}
 		c.ServeJSON()
 	} else {
 		c.Data["json"] = map[string]interface{}{"mensaje": "No hay fincas registradas"}
