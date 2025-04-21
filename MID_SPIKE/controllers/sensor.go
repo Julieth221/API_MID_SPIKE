@@ -3,7 +3,6 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -75,42 +74,7 @@ func (c *SensorController) Post() {
 // @Failure 403 :id is empty
 // @router /:id [get]
 func (c *SensorController) GetOne() {
-	// Nombre del servicio en app.conf
-	nombreServicio := "API_CRUD_SENSOR"
 
-	// Endpoint del servicio de sensores con ID
-	endpoint := "sensores"
-
-	// Parámetro: ID del sensor
-	parametro := ""
-
-	// Llamar al método GET
-	respuesta, err := Metodo.Get(nombreServicio, endpoint, parametro)
-	if err != nil {
-		return nil, fmt.Errorf("error al obtener el sensor: %v", err)
-	}
-
-	// Decodificar JSON en la estructura Sensor
-	var sensor models.Sensor
-	if err := json.Unmarshal(respuesta, &sensor); err != nil {
-		return nil, fmt.Errorf("error al procesar la respuesta: %v", err)
-	}
-
-	return &sensor, nil
-}
-
-func main() {
-	// ID del sensor a buscar
-	sensorID := "5"
-
-	// Obtener el sensor
-	sensor, err := GetOneSensor(sensorID)
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-
-	// Mostrar el sensor
-	fmt.Printf("Sensor encontrado: %+v\n", sensor)
 }
 
 // GetAll ...

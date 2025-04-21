@@ -291,33 +291,35 @@ func (c *UsuarioController) GeneraryEnviarToken() {
 
 // @Title ValidarToken
 // @Description Verifica si el token es válido
-// @Param	token	query	string	true	"Token de recuperación"
-// @Param	correo	query	string	true	"Correo electrónico del usuario"
+// @Param	body	body	map[string]string	true	"Token y correo electrónico"
 // @Success 200 {object} map[string]string "Token válido"
 // @Failure 400 "Token inválido"
 // @Failure 403 "Faltan parámetros"
-// @router /validartoken [get]
+// @router /validartoken [post]
 func (c *UsuarioController) ValidarToken() {
-	fmt.Println("Función GET: Validar Token")
+	fmt.Println("Función POST: Validar Token")
 
-	// Obtener token y correo desde los parámetros de la URL
-	tokenIngresado := c.GetString("token")
-	correo := c.GetString("correo")
+	var datos map[string]string
+	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &datos); err != nil {
+		handleError(c, "Error al leer el cuerpo de la solicitud", err)
+		return
+	}
 
-	// Validar que ambos parámetros estén presentes
+	tokenIngresado := datos["token"]
+	correo := datos["correo"]
+	fmt.Println("token ingresado: ", tokenIngresado, "correo ingresado: ", correo)
+
 	if tokenIngresado == "" || correo == "" {
 		handleError(c, "Debe proporcionar el token y el correo electrónico", nil)
 		return
 	}
 
-	// Buscar usuario por correo
 	usuario, err := obtenerUsuarioPorCorreo(correo)
 	if err != nil {
 		handleError(c, "El usuario no existe", err)
 		return
 	}
 
-	// Obtener ID de credencial
 	credencialID, err := obtenerFkCredencialID(usuario)
 	if err != nil {
 		handleError(c, "El usuario no tiene credenciales asociadas", err)
@@ -325,22 +327,19 @@ func (c *UsuarioController) ValidarToken() {
 	}
 	fmt.Println("ID de la credencial: ", credencialID)
 
-	// Obtener la credencial
 	credencial, err := obtenerCredencialPorID(credencialID)
 	if err != nil {
 		handleError(c, "Error al obtener la credencial del usuario", err)
 		return
 	}
-	fmt.Println("Este es la credencial actual: ", credencial)
+	fmt.Println("Esta es la credencial actual: ", credencial)
 
-	// Obtener el token almacenado en la credencial
 	tokenGuardado, tieneTokenGuardado := credencial["Token"].(string)
 	if !tieneTokenGuardado {
 		handleError(c, "No hay token almacenado para este usuario", nil)
 		return
 	}
 
-	// Validar token usando VerificarToken
 	if !services.VerificarToken(tokenIngresado, tokenGuardado) {
 		handleError(c, "Token inválido o expirado", nil)
 		return
@@ -350,7 +349,6 @@ func (c *UsuarioController) ValidarToken() {
 
 	fmt.Println("Token válido, procediendo con el cambio de contraseña...")
 
-	// Responder con éxito
 	c.Data["json"] = map[string]string{"mensaje": "Token válido"}
 	c.ServeJSON()
 }
@@ -544,9 +542,7 @@ func actualizarFkCredencialUsuario(usuarioID, newCredencialID interface{}) error
 }
 
 func handleError(c *UsuarioController, mensaje string, err error) {
-	if err != nil {
-		fmt.Println(mensaje+":", err)
-	}
+	c.Ctx.Output.SetStatus(400)
 	c.Data["json"] = map[string]string{"error": mensaje}
 	c.ServeJSON()
 }

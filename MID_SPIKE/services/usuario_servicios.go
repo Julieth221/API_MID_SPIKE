@@ -112,10 +112,12 @@ func Metodo_put(nombre_servicio, endpoint, id string, data []byte) ([]byte, erro
 		return nil, fmt.Errorf("error al crear la solicitud PUT: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	fmt.Println("solicitud PUT: ", req)
 
 	// Enviar la solicitud
 	client := &http.Client{}
 	response, err := client.Do(req)
+	fmt.Println("este es el response al enviar la solicitud", response)
 	if err != nil {
 		return nil, fmt.Errorf("error en PUT a %s: %v", url, err)
 	}
@@ -157,6 +159,8 @@ func Metodo_patch(nombre_servicio, endpoint, id string, data []byte) ([]byte, er
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	fmt.Println("solicitud patch:", req)
+
 	// Enviar la solicitud
 	client := &http.Client{}
 	response, err := client.Do(req)
@@ -164,17 +168,20 @@ func Metodo_patch(nombre_servicio, endpoint, id string, data []byte) ([]byte, er
 		return nil, fmt.Errorf("error en PATCH a %s: %v", url, err)
 	}
 	defer response.Body.Close()
+	fmt.Println("ojoo: ", response)
 
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusNoContent {
 		body, _ := ioutil.ReadAll(response.Body)
 		return nil, fmt.Errorf("error en API PATCH: %d - %s", response.StatusCode, string(body))
 	}
+	fmt.Println("ojoo: ", response)
 
 	// Leer la respuesta
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error al leer la respuesta: %v", err)
 	}
+	fmt.Println("respuesta api", string(body))
 
 	fmt.Println("Respuesta de la API:", string(body))
 	return body, nil
