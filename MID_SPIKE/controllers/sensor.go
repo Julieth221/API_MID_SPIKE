@@ -3,18 +3,14 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"strings"
 
 	"github.com/astaxie/beego"
-	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/models"
-	"gorm.io/gorm"
+	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
 )
 
 // SensorController operations for Sensor
 type SensorController struct {
 	beego.Controller
-	DB *gorm.DB
 }
 
 // URLMapping ...
@@ -27,42 +23,60 @@ func (c *SensorController) URLMapping() {
 }
 
 // Post ...
-// @Title Create
-// @Description create Sensor
-// @Param	body		body 	models.Sensor	true		"body for Sensor content"
-// @Success 201 {object} models.Sensor
-// @Failure 403 body is empty
+// @Title Post
+// @Description Registra un nuevo tipo de sensor a través del API CRUD
+// @Param	body		body 	models.TipoSensor	true		"Objeto TipoSensor a ser creado"
+// @Success 201 {object} models.TipoSensor
+// @Failure 400 Bad request
 // @router / [post]
 func (c *SensorController) Post() {
-	var sensor models.Sensor
+	fmt.Println("Registrando tipo de sensor a través del API CRUD")
 
-	// Leer el cuerpo de la solicitud y convertirlo a una estructura Sensor
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &sensor); err != nil {
-		c.Ctx.Output.SetStatus(http.StatusBadRequest)
-		c.Data["json"] = map[string]string{"error": "Formato JSON inválido"}
+	var body map[string]interface{}
+	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
+		c.Ctx.Output.SetStatus(400)
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la solicitud", "details": err.Error()}
 		c.ServeJSON()
 		return
 	}
 
-	// Validar que los campos requeridos no estén vacíos
-	if sensor.NombreSensor == "" || sensor.FkTipoSensor == "" {
-		c.Ctx.Output.SetStatus(http.StatusBadRequest)
-		c.Data["json"] = map[string]string{"error": "Los campos 'nombre_sensor' y 'fk_tipo_sensor' son obligatorios"}
+	// Convertir el body a JSON para enviarlo al API CRUD
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		c.Ctx.Output.SetStatus(400)
+		c.Data["json"] = map[string]interface{}{"error": "Error al convertir a JSON", "details": err.Error()}
 		c.ServeJSON()
 		return
 	}
 
-	// Insertar en la base de datos
-	if err := c.DB.Create(&sensor).Error; err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]string{"error": fmt.Sprintf("No se pudo crear el sensor: %v", err)}
+	// Llamar al servicio Metodo_post para enviar los datos al API CRUD
+	response, err := services.Metodo_post("API_CRUD_SENSOR", "/v1/Tipo_sensor", jsonData) // Ajusta el nombre del servicio y el endpoint
+	if err != nil {
+		c.Ctx.Output.SetStatus(500) // O el código de estado adecuado devuelto por el API CRUD
+		c.Data["json"] = map[string]interface{}{"error": "Error al registrar tipo de sensor en el API CRUD", "details": err.Error()}
 		c.ServeJSON()
 		return
 	}
 
-	// Responder con el sensor creado
-	c.Ctx.Output.SetStatus(http.StatusCreated)
-	c.Data["json"] = sensor
+	// Parsear la respuesta del API CRUD
+	var respuestaCRUD map[string]interface{}
+	if err := json.Unmarshal(response, &respuestaCRUD); err != nil {
+		c.Ctx.Output.SetStatus(500)
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta del API CRUD", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Verificar el estado de la respuesta del API CRUD y devolver el resultado adecuado
+	if _, ok := respuestaCRUD["error"]; ok {
+		c.Ctx.Output.SetStatus(500) // Ajusta según el código de estado real del error del API CRUD
+		c.Data["json"] = respuestaCRUD
+		c.ServeJSON()
+		return
+	}
+
+	c.Ctx.Output.SetStatus(201)                                                                                              // Created
+	c.Data["json"] = map[string]interface{}{"mensaje": "Tipo de sensor registrado con éxito", "data": respuestaCRUD["Data"]} //Devuelvo la respuesta del create
 	c.ServeJSON()
 }
 
@@ -102,58 +116,7 @@ func (c *SensorController) GetAll() {
 // @Failure 403 :id is not int
 // @router /:id [put]
 func (c *SensorController) Put() {
-	// Obtener el ID desde la URL
-	id := c.Ctx.Input.Param(":id")
-	if id == "" {
-		c.Ctx.Output.SetStatus(http.StatusBadRequest)
-		c.Data["json"] = map[string]string{"error": "Se requiere un ID para actualizar el sensor"}
-		c.ServeJSON()
-		return
-	}
 
-	// Buscar el sensor en la base de datos
-	var sensor models.Sensor
-	if err := c.DB.First(&sensor, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			c.Ctx.Output.SetStatus(http.StatusNotFound)
-			c.Data["json"] = map[string]string{"error": "Sensor no encontrado"}
-		} else {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]string{"error": fmt.Sprintf("Error al buscar el sensor: %v", err)}
-		}
-		c.ServeJSON()
-		return
-	}
-
-	// Leer los nuevos datos desde el cuerpo de la solicitud
-	var updatedData models.Sensor
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &updatedData); err != nil {
-		c.Ctx.Output.SetStatus(http.StatusBadRequest)
-		c.Data["json"] = map[string]string{"error": "Formato JSON inválido"}
-		c.ServeJSON()
-		return
-	}
-
-	// Actualizar los campos si se proporcionan en la solicitud
-	if updatedData.NombreSensor != "" {
-		sensor.NombreSensor = updatedData.NombreSensor
-	}
-	if updatedData.FkTipoSensor != "" {
-		sensor.FkTipoSensor = updatedData.FkTipoSensor
-	}
-	sensor.Activo = updatedData.Activo // Si no se envía, tomará el valor por defecto (false)
-
-	// Guardar los cambios en la base de datos
-	if err := c.DB.Save(&sensor).Error; err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]string{"error": fmt.Sprintf("Error al actualizar el sensor: %v", err)}
-		c.ServeJSON()
-		return
-	}
-
-	// Responder con el sensor actualizado
-	c.Data["json"] = sensor
-	c.ServeJSON()
 }
 
 // Delete ...
@@ -164,47 +127,5 @@ func (c *SensorController) Put() {
 // @Failure 403 id is empty
 // @router /:id [delete]
 func (c *SensorController) Delete() {
-	// Obtener el ID desde la URL (para eliminar un solo sensor)
-	id := c.Ctx.Input.Param(":id")
 
-	// Si hay un ID en la URL, eliminamos solo ese sensor
-	if id != "" {
-		if err := c.DB.Delete(&models.Sensor{}, id).Error; err != nil {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]string{"error": fmt.Sprintf("No se pudo eliminar el sensor con ID %s", id)}
-			c.ServeJSON()
-			return
-		}
-		c.Data["json"] = map[string]string{"message": "Sensor eliminado exitosamente"}
-		c.ServeJSON()
-		return
-	}
-
-	// Si no hay ID en la URL, intentamos eliminar varios sensores desde el cuerpo de la solicitud
-	var ids []int
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &ids); err != nil {
-		c.Ctx.Output.SetStatus(http.StatusBadRequest)
-		c.Data["json"] = map[string]string{"error": "Se esperaba una lista de IDs en el cuerpo"}
-		c.ServeJSON()
-		return
-	}
-
-	// Verificamos si la lista está vacía
-	if len(ids) == 0 {
-		c.Ctx.Output.SetStatus(http.StatusBadRequest)
-		c.Data["json"] = map[string]string{"error": "La lista de IDs está vacía"}
-		c.ServeJSON()
-		return
-	}
-
-	// Eliminamos múltiples sensores
-	if err := c.DB.Delete(&models.Sensor{}, ids).Error; err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]string{"error": fmt.Sprintf("No se pudieron eliminar los sensores con IDs %s", strings.Trim(fmt.Sprint(ids), "[]"))}
-		c.ServeJSON()
-		return
-	}
-
-	c.Data["json"] = map[string]string{"message": "Sensores eliminados exitosamente"}
-	c.ServeJSON()
 }
