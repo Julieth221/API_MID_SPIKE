@@ -117,7 +117,7 @@ func (c *SensorController) Post() {
 	}
 
 	// Llamar al servicio Metodo_post para registrar la geolocalizacion del sensor en el API CRUD
-	geolocalizacionResponse, err := services.Metodo_post("API_CRUD_SENSOR", "/v1/GeolocalizacionSensor", geolocalizacionJson)
+	geolocalizacionResponse, err := services.Metodo_post("API_CRUD_SENSOR", "/v1/Geolocalizacion_sensor", geolocalizacionJson)
 	if err != nil {
 		c.Ctx.Output.SetStatus(500)
 		c.Data["json"] = map[string]interface{}{"error": "Error al registrar geolocalizacion en el API CRUD", "details": err.Error()}
