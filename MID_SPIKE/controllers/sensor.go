@@ -228,8 +228,62 @@ func (c *SensorController) GetOne() {
 // @Failure 403
 // @router / [get]
 func (c *SensorController) GetAll() {
+	fmt.Println("Obteniendo información de todos los sensores desde la API")
+	parametro := ""
+	
+	// Llamar a la función Metodo_get para obtener los datos de la API
+	body, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/Sensor", parametro) // Asegúrate de que el paquete services esté importado
+	if err != nil {
+		c.Ctx.Output.SetStatus(500)
+		c.Data["json"] = map[string]interface{}{"error": "Error al obtener los sensores desde la API", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
 
+	// Procesar la respuesta de la API
+	var sensores []map[string]interface{}
+	err = json.Unmarshal(body, &sensores) // Suponiendo que la API devuelve un array de objetos JSON
+	if err != nil {
+		c.Ctx.Output.SetStatus(500)
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la API", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Crear la respuesta, incluyendo la información de los sensores y la información quemada del cultivo
+	var respuestaSensores []map[string]interface{}
+	for _, sensor := range sensores {
+		// Aquí asumimos que la API devuelve los campos NombreSensor, FkTipoSensor, FkGeolocalizacionSensor, FechaInstalacion
+		// Ajusta esto según la estructura real de la respuesta de tu API
+		respuestaSensores = append(respuestaSensores, map[string]interface{}{
+			"NombreSensor":          sensor["NombreSensor"],
+			"FkTipoSensor": map[string]interface{}{
+				"Id":   sensor["FkTipoSensor"].(map[string]interface{})["Id"],
+				"NombreTipoSensor": sensor["FkTipoSensor"].(map[string]interface{})["NombreTipoSensor"],
+				"Descripcion":      sensor["FkTipoSensor"].(map[string]interface{})["Descripcion"],
+			},
+			"FkGeolocalizacionSensor": map[string]interface{}{
+				"Id":       sensor["FkGeolocalizacionSensor"].(map[string]interface{})["Id"],
+				"Latitud":  sensor["FkGeolocalizacionSensor"].(map[string]interface{})["Latitud"],
+				"Longitud": sensor["FkGeolocalizacionSensor"].(map[string]interface{})["Longitud"],
+			},
+			"FechaInstalacion": sensor["FechaInstalacion"],
+			"FkRegistroCultivo": map[string]interface{}{ // Información del cultivo quemada
+				"Id":     1,
+				"Nombre": "",
+			},
+		})
+	}
+
+	c.Ctx.Output.SetStatus(200)
+	c.Data["json"] = map[string]interface{}{
+		"Data": respuestaSensores,
+	}
+	c.ServeJSON()
 }
+
+
+
 
 // Put ...
 // @Title Put
