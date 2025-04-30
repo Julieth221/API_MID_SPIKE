@@ -117,6 +117,72 @@ func (c *Gestion_arrendamientoController) Post_Arrendamiento() {
 // @Param	id		path 	string	true		"The key for staticblock"
 // @Success 200 {object} models.Gestion_arrendamiento
 // @Failure 403 :id is empty
+// GetActivosPorFinca retorna los arrendamientos activos de una finca
+// @router /activos/:id [get]
+func (c *Gestion_arrendamientoController) GetActivosPorFinca() {
+	fmt.Println("esta es la funcion de arrendamientos activos")
+	fincaID := c.Ctx.Input.Param(":id")
+	if fincaID == "" {
+		c.respondWithError("El ID de la finca es requerido")
+		return
+	}
+
+	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Arrendamiento", "")
+	if err != nil {
+		c.respondWithError("Error al obtener arrendamientos", err.Error())
+		return
+	}
+
+	// Aquí se deserializa en una estructura tipo objeto que contiene un array en "Data"
+	var responseWrapper struct {
+		Data []map[string]interface{} `json:"Data"`
+	}
+
+	if err := json.Unmarshal(response, &responseWrapper); err != nil {
+		c.respondWithError("Error al procesar la respuesta del API CRUD", err.Error())
+		return
+	}
+
+	arrendamientos := responseWrapper.Data
+	var activos []map[string]interface{}
+	ahora := time.Now()
+
+	for _, arr := range arrendamientos {
+		fincaRef, ok := arr["FkArrendamientoFinca"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fkFinca := fmt.Sprintf("%v", fincaRef["Id"])
+		if fkFinca != fincaID {
+			continue
+		}
+
+		fechaInicioStr := fmt.Sprintf("%v", arr["FechaInicio"])
+		fechaFinStr := fmt.Sprintf("%v", arr["FechaFin"])
+
+		fechaInicio, err1 := time.Parse(time.RFC3339, fechaInicioStr)
+		fechaFin, err2 := time.Parse(time.RFC3339, fechaFinStr)
+
+		activo, ok := arr["Activo"].(bool)
+		if !ok {
+			continue
+		}
+
+		if err1 == nil && err2 == nil && activo && ahora.After(fechaInicio) && ahora.Before(fechaFin) {
+			activos = append(activos, arr)
+		}
+	}
+
+	c.Data["json"] = activos
+	c.ServeJSON()
+}
+
+// GetOne ...
+// @Title GetOne
+// @Description get Gestion_arrendamiento by id
+// @Param	id		path 	string	true		"The key for staticblock"
+// @Success 200 {object} models.Gestion_arrendamiento
+// @Failure 403 :id is empty
 // @router /:id [get]
 func (c *Gestion_arrendamientoController) GetOne() {
 
