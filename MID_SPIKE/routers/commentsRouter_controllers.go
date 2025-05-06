@@ -54,6 +54,15 @@ func init() {
 
     beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"],
         beego.ControllerComments{
+            Method: "GetActivosPorFinca",
+            Router: "/activos/:id",
+            AllowHTTPMethods: []string{"get"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"],
+        beego.ControllerComments{
             Method: "Post_Arrendamiento",
             Router: "/arrendamiento/",
             AllowHTTPMethods: []string{"post"},

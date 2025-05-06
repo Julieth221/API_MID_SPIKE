@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/astaxie/beego"
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
@@ -54,7 +55,7 @@ func (c *SensorController) Post() {
 	// Organizar los datos para el API CRUD de Tipo_sensor
 	tipoSensorData := map[string]interface{}{
 		"NombreTipoSensor": body["NombreTipoSensor"],
-		"Descripcion":      body["Descripcion"],
+		"Descripcion":       body["Descripcion"],
 	}
 
 	// Convertir a JSON para enviar al API CRUD de Tipo_sensor
@@ -93,8 +94,8 @@ func (c *SensorController) Post() {
 	}
 
 	// Extraer el ID del tipo de sensor registrado
-	tipoSensorID, ok := respuestaTipoSensor["Data"].(map[string]interface{})["Id"].(float64)
-	if !ok {
+	tipoSensorID, okTipoSensorID := respuestaTipoSensor["Data"].(map[string]interface{})["Id"].(float64)
+	if !okTipoSensorID {
 		c.Ctx.Output.SetStatus(500)
 		c.Data["json"] = map[string]interface{}{"error": "Error al obtener el ID del tipo de sensor", "details": "El API CRUD no devolvió un ID válido"}
 		c.ServeJSON()
@@ -143,22 +144,22 @@ func (c *SensorController) Post() {
 	}
 
 	// Extraer el ID de la geolocalizacion registrada
-	geolocalizacionID, ok := respuestaGeolocalizacion["Data"].(map[string]interface{})["Id"].(float64)
-	if !ok {
+	geolocalizacionID, okGeolocalizacionID := respuestaGeolocalizacion["Data"].(map[string]interface{})["Id"].(float64)
+	if !okGeolocalizacionID {
 		c.Ctx.Output.SetStatus(500)
 		c.Data["json"] = map[string]interface{}{"error": "Error al obtener el ID de la geolocalizacion", "details": "El API CRUD no devolvió un ID válido"}
 		c.ServeJSON()
 		return
 	}
 
-	// Organizar los datos para el registro del sensor, incluyendo la FK de Geolocalizacion y el nombre del cultivo
+	// Organizar los datos para el registro del sensor, incluyendo las FKs de Geolocalizacion y TipoSensor
 	sensorData := map[string]interface{}{
-		"NombreSensor":       body["Nombre"],
-		"FkTipoSensor":       map[string]interface{}{"Id": int(tipoSensorID)},
+		"NombreSensor":              body["Nombre"],
+		"FkTipoSensor":              map[string]interface{}{"Id": int(tipoSensorID)},
 		"FkGeolocalizacionSensor": map[string]interface{}{"Id": int(geolocalizacionID)},
-		"FechaInstalacion":   body["FechaInstalacion"],
-		//  "FkRegistroCultivo":  map[string]interface{}{"Nombre": body["Cultivo"]}, //TODO: Esto es lo que voy a comentar
-		"FkRegistroCultivo":  map[string]interface{}{"Id": 1}, //TODO: Esto es lo que voy a agregar para que no me de error mientras tanto
+		"FechaInstalacion":          body["FechaInstalacion"],
+		//  "FkRegistroCultivo":        map[string]interface{}{"Nombre": body["Cultivo"]}, //TODO: Esto es lo que voy a comentar
+		"FkRegistroCultivo": map[string]interface{}{"Id": 1}, //TODO: Esto es lo que voy a agregar para que no me de error mientras tanto
 	}
 
 	// Convertir a JSON para enviar al API CRUD de Sensor
@@ -196,13 +197,61 @@ func (c *SensorController) Post() {
 		return
 	}
 
+	// Extraer el ID del sensor registrado
+	sensorID, okSensorID := respuestaSensor["Data"].(map[string]interface{})["Id"].(float64)
+	if !okSensorID {
+		c.Ctx.Output.SetStatus(500)
+		c.Data["json"] = map[string]interface{}{"error": "Error al obtener el ID del sensor", "details": "El API CRUD no devolvió un ID válido"}
+		c.ServeJSON()
+		return
+	}
+
+	// Organizar los datos para el registro del sensor_geolocalizacion
+	sensorGeolocalizacionData := map[string]interface{}{
+		"FkSensor": 					map[string]interface{}{"Id": int(sensorID)}, // Usar el ID del sensor registrado
+		"FkGeolocalizacionSensor": 		map[string]interface{}{"Id": int(geolocalizacionID)},
+		"Activo": 						true,
+	}
+
+	// Convertir a JSON para enviar al API CRUD de SensorGeolocalizacion
+	sensorGeolocalizacionJson, err := json.Marshal(sensorGeolocalizacionData)
+	if err != nil {
+		c.Ctx.Output.SetStatus(400)
+		c.Data["json"] = map[string]interface{}{"error": "Error al convertir a JSON (SensorGeolocalizacion)", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Llamar al servicio Metodo_post para registrar la relación sensor-geolocalizacion en el API CRUD
+	sensorGeolocalizacionResponse, err := services.Metodo_post("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion", sensorGeolocalizacionJson)
+	if err != nil {
+		c.Ctx.Output.SetStatus(500)
+		c.Data["json"] = map[string]interface{}{"error": "Error al registrar la relación sensor-geolocalización en el API CRUD", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Parsear la respuesta del API CRUD de SensorGeolocalizacion
+	var respuestaSensorGeolocalizacion map[string]interface{}
+	if err := json.Unmarshal(sensorGeolocalizacionResponse, &respuestaSensorGeolocalizacion); err != nil {
+		c.Ctx.Output.SetStatus(500)
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta del API CRUD (SensorGeolocalizacion)", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Verificar si hubo error al registrar la relación sensor-geolocalizacion
+	if _, ok := respuestaSensorGeolocalizacion["error"]; ok {
+		c.Ctx.Output.SetStatus(500) // Ajusta el código de estado según el API CRUD
+		c.Data["json"] = respuestaSensorGeolocalizacion
+		c.ServeJSON()
+		return
+	}
+
 	c.Ctx.Output.SetStatus(201)
-	c.Data["json"] = map[string]interface{}{"mensaje": "Sensor registrado con éxito", "data": respuestaSensor["Data"]} //Devuelvo la respuesta del create
+	c.Data["json"] = map[string]interface{}{"mensaje": "Sensor y geolocalización registrados y relacionados con éxito", "data": respuestaSensor["Data"]} //Devuelvo la respuesta del create
 	c.ServeJSON()
 }
-
-
-
 
 // GetOne ...
 // @Title GetOne
@@ -224,67 +273,43 @@ func (c *SensorController) GetOne() {
 // @Param	order	query	string	false	"Order corresponding to each sortby field, if single value, apply to all sortby fields. e.g. desc,asc ..."
 // @Param	limit	query	string	false	"Limit the size of result set. Must be an integer"
 // @Param	offset	query	string	false	"Start position of result set. Must be an integer"
-// @Success 200 {object} models.Sensor
-// @Failure 403
+// @Success 200 {object} []map[string]interface{}
+// @Failure 500
 // @router / [get]
 func (c *SensorController) GetAll() {
-	fmt.Println("Obteniendo información de todos los sensores desde la API")
-	parametro := ""
-	
-	// Llamar a la función Metodo_get para obtener los datos de la API
-	body, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/Sensor", parametro) // Asegúrate de que el paquete services esté importado
+	fmt.Println("Obteniendo la relación entre sensores y geolocalizaciones")
+
+	// Llamada al servicio para obtener la tabla de relación sensor-geolocalizacion, ordenado por Id
+	sensorGeoResponse, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion?sortby=Id&order=asc", "")
 	if err != nil {
-		c.Ctx.Output.SetStatus(500)
-		c.Data["json"] = map[string]interface{}{"error": "Error al obtener los sensores desde la API", "details": err.Error()}
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]interface{}{"error": "Error al obtener la relación sensor-geolocalización"}
 		c.ServeJSON()
 		return
 	}
 
-	// Procesar la respuesta de la API
-	var sensores []map[string]interface{}
-	err = json.Unmarshal(body, &sensores) // Suponiendo que la API devuelve un array de objetos JSON
-	if err != nil {
-		c.Ctx.Output.SetStatus(500)
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la API", "details": err.Error()}
+	// Parsear la respuesta de la tabla de relación
+	var sensorGeoData map[string]interface{}
+	if err := json.Unmarshal(sensorGeoResponse, &sensorGeoData); err != nil {
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la relación sensor-geolocalización"}
 		c.ServeJSON()
 		return
 	}
 
-	// Crear la respuesta, incluyendo la información de los sensores y la información quemada del cultivo
-	var respuestaSensores []map[string]interface{}
-	for _, sensor := range sensores {
-		// Aquí asumimos que la API devuelve los campos NombreSensor, FkTipoSensor, FkGeolocalizacionSensor, FechaInstalacion
-		// Ajusta esto según la estructura real de la respuesta de tu API
-		respuestaSensores = append(respuestaSensores, map[string]interface{}{
-			"NombreSensor":          sensor["NombreSensor"],
-			"FkTipoSensor": map[string]interface{}{
-				"Id":   sensor["FkTipoSensor"].(map[string]interface{})["Id"],
-				"NombreTipoSensor": sensor["FkTipoSensor"].(map[string]interface{})["NombreTipoSensor"],
-				"Descripcion":      sensor["FkTipoSensor"].(map[string]interface{})["Descripcion"],
-			},
-			"FkGeolocalizacionSensor": map[string]interface{}{
-				"Id":       sensor["FkGeolocalizacionSensor"].(map[string]interface{})["Id"],
-				"Latitud":  sensor["FkGeolocalizacionSensor"].(map[string]interface{})["Latitud"],
-				"Longitud": sensor["FkGeolocalizacionSensor"].(map[string]interface{})["Longitud"],
-			},
-			"FechaInstalacion": sensor["FechaInstalacion"],
-			"FkRegistroCultivo": map[string]interface{}{ // Información del cultivo quemada
-				"Id":     1,
-				"Nombre": "",
-			},
-		})
+	// Validar que hay datos en la tabla de relación
+	sensorGeolocalizaciones, okSensorGeo := sensorGeoData["Data"].([]interface{})
+	if !okSensorGeo {
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]interface{}{"mensaje": "No hay relaciones sensor-geolocalización registradas"}
+		c.ServeJSON()
+		return
 	}
 
-	c.Ctx.Output.SetStatus(200)
-	c.Data["json"] = map[string]interface{}{
-		"Data": respuestaSensores,
-	}
+	// Responder con la lista de relaciones sensor-geolocalización
+	c.Data["json"] = sensorGeolocalizaciones
 	c.ServeJSON()
 }
-
-
-
-
 // Put ...
 // @Title Put
 // @Description update the Sensor
