@@ -88,7 +88,7 @@ func Metodo_get(nombre_servicio, endpoint, parametro string) ([]byte, error) {
 		return nil, fmt.Errorf("error al leer la respuesta: %v", err)
 	}
 
-	// fmt.Println("Respuesta de la API:", string(body))
+	fmt.Println("Respuesta de la API:", string(body))
 	return body, nil
 }
 

@@ -99,9 +99,27 @@ func init() {
 
     beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"],
         beego.ControllerComments{
+            Method: "GetActivosPorFinca",
+            Router: "/activos/:id/",
+            AllowHTTPMethods: []string{"get"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"],
+        beego.ControllerComments{
             Method: "Post_Arrendamiento",
             Router: "/arrendamiento/",
             AllowHTTPMethods: []string{"post"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_arrendamientoController"],
+        beego.ControllerComments{
+            Method: "GetParcelasPorArrendamiento",
+            Router: "/parcelasarrendamiento/:id",
+            AllowHTTPMethods: []string{"get"},
             MethodParams: param.Make(),
             Filters: nil,
             Params: nil})
@@ -171,6 +189,15 @@ func init() {
 
     beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"],
         beego.ControllerComments{
+            Method: "DesactivarArrendamiento",
+            Router: "/arrendamiento/desactivar/:id",
+            AllowHTTPMethods: []string{"patch"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"],
+        beego.ControllerComments{
             Method: "Post_Arrendatario",
             Router: "/arrendatario/",
             AllowHTTPMethods: []string{"post"},
@@ -180,9 +207,18 @@ func init() {
 
     beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"],
         beego.ControllerComments{
-            Method: "Post_Arrendamiento",
-            Router: "/arrendatario/arrendamiento/",
+            Method: "CrearParcelasParaFincaExistente",
+            Router: "/crear_parcelas/finca_id",
             AllowHTTPMethods: []string{"post"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"],
+        beego.ControllerComments{
+            Method: "GetDetalles",
+            Router: "/detalles/:id",
+            AllowHTTPMethods: []string{"get"},
             MethodParams: param.Make(),
             Filters: nil,
             Params: nil})
@@ -192,6 +228,15 @@ func init() {
             Method: "PatchParcela",
             Router: "/parcela/:id",
             AllowHTTPMethods: []string{"patch"},
+            MethodParams: param.Make(),
+            Filters: nil,
+            Params: nil})
+
+    beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"] = append(beego.GlobalControllerRouter["github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/controllers:Gestion_fincaController"],
+        beego.ControllerComments{
+            Method: "GetTiposSueloUsuario",
+            Router: "/tipos_suelo_usuario/usuario",
+            AllowHTTPMethods: []string{"get"},
             MethodParams: param.Make(),
             Filters: nil,
             Params: nil})
