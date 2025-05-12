@@ -454,7 +454,7 @@ func (c *Gestion_fincaController) GetAll() {
 // @Title Put
 // @Description update the Gestion_finca
 // @Param	id		path 	string	true		"The id you want to update"
-// @Param	body		body 	models.Gestion_finca	true		"body for Gestion_finca content"
+// @Param	body		body 	models.Gestion_finca	true		"body for Gestion_finca content"p
 // @Success 200 {object} models.Gestion_finca
 // @Failure 403 :id is not int
 // @router /:id [put]

@@ -277,39 +277,102 @@ func (c *SensorController) GetOne() {
 // @Failure 500
 // @router / [get]
 func (c *SensorController) GetAll() {
+	// falta llamar la tabla tipo_sensor
 	fmt.Println("Obteniendo la relación entre sensores y geolocalizaciones")
 
-	// Llamada al servicio para obtener la tabla de relación sensor-geolocalizacion, ordenado por Id
-	sensorGeoResponse, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion?sortby=Id&order=asc", "")
-	if err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al obtener la relación sensor-geolocalización"}
-		c.ServeJSON()
-		return
-	}
-
-	// Parsear la respuesta de la tabla de relación
-	var sensorGeoData map[string]interface{}
-	if err := json.Unmarshal(sensorGeoResponse, &sensorGeoData); err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la relación sensor-geolocalización"}
-		c.ServeJSON()
-		return
-	}
-
-	// Validar que hay datos en la tabla de relación
-	sensorGeolocalizaciones, okSensorGeo := sensorGeoData["Data"].([]interface{})
-	if !okSensorGeo {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"mensaje": "No hay relaciones sensor-geolocalización registradas"}
-		c.ServeJSON()
-		return
-	}
-
-	// Responder con la lista de relaciones sensor-geolocalización
-	c.Data["json"] = sensorGeolocalizaciones
+// Llamada al servicio para obtener la tabla de relación sensor-geolocalizacion
+sensorGeoResponse, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion", "")
+if err != nil {
+	c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+	c.Data["json"] = map[string]interface{}{"error": "Error al obtener la relación sensor-geolocalización", "detalle": err.Error()}
 	c.ServeJSON()
+	return
 }
+
+// Imprimir la respuesta del servicio para inspección
+fmt.Printf("Respuesta del servicio: %s\n", sensorGeoResponse)
+
+// Parsear la respuesta de la tabla de relación
+var sensorGeoData map[string]interface{}
+if err := json.Unmarshal(sensorGeoResponse, &sensorGeoData); err != nil {
+	c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+	c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la relación sensor-geolocalización", "detalle": err.Error()}
+	c.ServeJSON()
+	return
+}
+
+// Validar que hay datos en la tabla de relación
+sensorGeolocalizaciones, okSensorGeo := sensorGeoData["Data"].([]interface{})
+if !okSensorGeo {
+	c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+	c.Data["json"] = map[string]interface{}{"mensaje": "No hay relaciones sensor-geolocalización registradas"}
+	c.ServeJSON()
+	return
+}
+
+// Obtener la estructura de la tabla sensor_geolocalizacion desde el CRUD
+sensorGeoStructResponse, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion", "?limit=0") // Usar limit=0 para obtener solo la estructura
+if err != nil {
+	c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+	c.Data["json"] = map[string]interface{}{"error": "Error al obtener la estructura de la tabla sensor_geolocalizacion", "detalle": err.Error()}
+	c.ServeJSON()
+	return
+}
+
+// Parsear la respuesta de la estructura de la tabla
+var sensorGeoStructData map[string]interface{}
+if err := json.Unmarshal(sensorGeoStructResponse, &sensorGeoStructData); err != nil {
+	c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+	c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la estructura de la tabla sensor_geolocalizacion", "detalle": err.Error()}
+	c.ServeJSON()
+	return
+}
+
+// Extraer la estructura del primer elemento de los datos (asumiendo que el primer elemento tiene la estructura)
+estructura, okEstructura := sensorGeoStructData["Data"].([]interface{})[0].(map[string]interface{})
+if !okEstructura {
+	c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+	c.Data["json"] = map[string]interface{}{"error": "Error al extraer la estructura de la tabla sensor_geolocalizacion"}
+	c.ServeJSON()
+	return
+}
+
+// Crear un mapa para almacenar los datos organizados
+respuesta := make([]map[string]interface{}, 0)
+
+// Iterar sobre los datos de sensor_geolocalizacion
+for _, sg := range sensorGeolocalizaciones {
+	sgMap, ok := sg.(map[string]interface{})
+	if !ok {
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar datos de sensor_geolocalizacion"}
+		c.ServeJSON()
+		return
+	}
+
+	// Crear un nuevo mapa para cada elemento, usando la estructura del CRUD
+	nuevoElemento := make(map[string]interface{})
+	for k := range estructura {
+		// Convertir los valores al tipo adecuado basado en la estructura del CRUD
+		switch v := sgMap[k].(type) {
+		case float64:
+			nuevoElemento[k] = int(v) // Convertir float64 a int para los campos ID
+		default:
+			nuevoElemento[k] = v
+		}
+	}
+	respuesta = append(respuesta, nuevoElemento)
+}
+
+// Responder con la lista de relaciones sensor-geolocalización
+c.Data["json"] = map[string]interface{}{
+	"mensaje": 				"Lista de relaciones sensor-geolocalización",
+	"data":    				respuesta,
+	"cantidad sensores" : 	len(respuesta),
+}
+c.ServeJSON()
+}
+
 // Put ...
 // @Title Put
 // @Description update the Sensor
