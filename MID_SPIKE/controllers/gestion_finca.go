@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -88,6 +89,60 @@ func (c *Gestion_fincaController) Post() {
 	c.ServeJSON()
 }
 
+// GetTiposSueloUsuario
+// @Title GetTiposSueloUsuario
+// @Description Obtener todos los tipos de suelo registrados por el usuario autenticado
+// @Success 200 {array} []map[string]interface{}
+// @Failure 403 No se proporcionó token
+// @router /tipos_suelo_usuario/usuario [get]
+func (c *Gestion_fincaController) GetTiposSueloUsuario() {
+	fmt.Println("Función GET: Tipos de suelo por usuario")
+
+	// Obtener el token de autorización
+	token := c.Ctx.Input.Header("Authorization")
+	if token == "" {
+		c.Data["json"] = map[string]interface{}{"error": "No se proporcionó token"}
+		c.ServeJSON()
+		return
+	}
+
+	// Validar token y obtener el ID del usuario
+	claims, err := auth_JWT.ValidarJWT(strings.TrimPrefix(token, "Bearer "))
+	if err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Token inválido o expirado"}
+		c.ServeJSON()
+		return
+	}
+	userID := claims.UserID
+
+	// Construir la URL para consultar los tipos de suelo del usuario
+	endpoint := fmt.Sprintf("?query=Id_Usuario:%d", userID)
+
+	// Hacer la petición al API CRUD
+	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/tipo_suelo", endpoint)
+	if err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al consultar tipos de suelo", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Parsear la respuesta
+	var parsedResp map[string]interface{}
+	if err := json.Unmarshal(response, &parsedResp); err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Extraer y devolver los datos
+	if tipos, ok := parsedResp["Data"].([]interface{}); ok {
+		c.Data["json"] = tipos
+	} else {
+		c.Data["json"] = []interface{}{} // lista vacía si no hay tipos registrados
+	}
+	c.ServeJSON()
+}
+
 // getTipoSueloID consulta el ID del tipo de suelo
 func getTipoSueloID(nombreTipo string) (int, error) {
 	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/tipo_suelo?query=nombre:", nombreTipo)
@@ -113,7 +168,7 @@ func crearFinca(body map[string]interface{}, userID int, tipoSueloID int) (int, 
 		"Nombre":         body["Nombre"],
 		"AreaTotal":      body["AreaTotal"],
 		"TotalParcelas":  body["TotalParcelas"],
-		"TamañoParcelas": body["TamañoParcelas"],
+		"TamañoParcelas": body["TamanoParcelas"],
 		"FkFinca":        map[string]interface{}{"Id": tipoSueloID},
 		"id_usuario":     userID,
 	}
@@ -134,6 +189,63 @@ func crearFinca(body map[string]interface{}, userID int, tipoSueloID int) (int, 
 		return int(data["Id"].(float64)), nil
 	}
 	return 0, fmt.Errorf("error al obtener ID de la finca")
+}
+
+// CrearParcelasParaFincaExistente
+// @Title CrearParcelasParaFincaExistente
+// @Description Crear parcelas adicionales para una finca ya registrada
+// @Param   finca_id   query   int     true  "ID de la finca existente"
+// @Param   body       body    []map[string]interface{} true "Lista de parcelas con geolocalización"
+// @Success 201 {object} map[string]interface{}
+// @Failure 400 finca_id inválido o faltan datos
+// @router /crear_parcelas/finca_id [post]
+func (c *Gestion_fincaController) CrearParcelasParaFincaExistente() {
+	fmt.Println("Crear nuevas parcelas para finca existente")
+
+	// Validar finca_id desde query param
+	fincaIDStr := c.GetString("finca_id")
+	if fincaIDStr == "" {
+		c.Data["json"] = map[string]interface{}{"error": "Debe proporcionar el ID de la finca"}
+		c.ServeJSON()
+		return
+	}
+
+	fincaID, err := strconv.Atoi(fincaIDStr)
+	if err != nil || fincaID <= 0 {
+		c.Data["json"] = map[string]interface{}{"error": "ID de finca inválido"}
+		c.ServeJSON()
+		return
+	}
+
+	// Leer cuerpo con las nuevas parcelas
+	var parcelas []interface{}
+
+	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &parcelas); err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al leer las parcelas", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// if len(parcelas) == 0 {
+	// 	c.Data["json"] = map[string]interface{}{"error": "Debe enviar al menos una parcela"}
+	// 	c.ServeJSON()
+	// 	return
+	// }
+
+	// Reutilizar función existente
+	if err := crearParcelas(parcelas, fincaID); err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al crear parcelas", "details": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// Actualizar área total de la finca
+	if err := actualizarAreaTotalFinca(fincaID); err != nil {
+		fmt.Println("Advertencia: no se pudo actualizar el área total de la finca:", err)
+	}
+
+	c.Data["json"] = map[string]interface{}{"mensaje": "Parcelas creadas con éxito", "finca_id": fincaID}
+	c.ServeJSON()
 }
 
 // crearParcelas maneja la creación de parcelas y su geolocalización
@@ -166,7 +278,7 @@ func crearParcelas(parcelas []interface{}, fincaID int) error {
 func crearParcela(p map[string]interface{}, fincaID int) (int, error) {
 	jsonParcela := map[string]interface{}{
 		"NombreParcela": p["NombreParcela"],
-		"TamañoParcela": p["TamañoParcela"],
+		"TamañoParcela": p["TamanoParcela"],
 		"FkFincaParcela": map[string]interface{}{
 			"Id": fincaID,
 		},
@@ -352,13 +464,15 @@ func (c *Gestion_fincaController) GetParcelas() {
 
 		// Construir un mapa con los datos relevantes de la parcela.
 		parcelaInfo := map[string]interface{}{
+			"IdParcela":     parcelaDatos["Id"],
 			"NombreParcela": parcelaDatos["NombreParcela"],
-			"TamañoParcela": parcelaDatos["TamañoParcela"],
+			"TamanoParcela": parcelaDatos["TamanoParcela"],
 			"Geolocalizacion": map[string]interface{}{
-				"LatitudInicial":  geoloc["LatitudInicial"],
-				"LongitudInicial": geoloc["LongitudInicial"],
-				"LatitudFinal":    geoloc["LatitudFinal"],
-				"LongitudFinal":   geoloc["LongitudFinal"],
+				"IdGeolocalizacion": geoloc["Id"],
+				"LatitudInicial":    geoloc["LatitudInicial"],
+				"LongitudInicial":   geoloc["LongitudInicial"],
+				"LatitudFinal":      geoloc["LatitudFinal"],
+				"LongitudFinal":     geoloc["LongitudFinal"],
 			},
 		}
 		parcelas = append(parcelas, parcelaInfo)
@@ -401,9 +515,10 @@ func (c *Gestion_fincaController) GetAll() {
 	}
 
 	userID := claims.UserID // ID del usuario autenticado
+	query := fmt.Sprintf("?query=Id_Usuario:%d", userID)
 
 	// Llamada al servicio para obtener todas las fincas
-	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Finca", "")
+	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Finca", query)
 	if err != nil {
 		c.Data["json"] = map[string]interface{}{"error": "Error al obtener fincas"}
 		c.ServeJSON()
@@ -434,7 +549,10 @@ func (c *Gestion_fincaController) GetAll() {
 					"Id":            fincaMap["Id"],
 				}
 				resultado = append(resultado, fincaInfo)
+				fmt.Println("fincas registradas del usuario: ", fincaInfo)
+
 			}
+
 		}
 
 		// Responder con la lista de fincas filtradas
@@ -609,6 +727,7 @@ func (c *Gestion_fincaController) PatchParcela() {
 		c.respondWithError("Error al procesar la solicitud")
 		return
 	}
+	fmt.Println("Body que ingresa para actualizar una parcela:", body)
 
 	parcelaData := ParcelaData(body)
 
@@ -626,6 +745,14 @@ func (c *Gestion_fincaController) PatchParcela() {
 		}
 	}
 
+	// Obtener finca_id para actualizar el área total
+	if fincaID, exists := body["Finca"].(float64); exists {
+		err := actualizarAreaTotalFinca(int(fincaID))
+		if err != nil {
+			fmt.Println("Advertencia: no se pudo actualizar el área total de la finca:", err)
+		}
+	}
+
 	c.Data["json"] = map[string]interface{}{
 		"mensaje":  "Parcela actualizada correctamente",
 		"response": string(response),
@@ -639,8 +766,8 @@ func ParcelaData(body map[string]interface{}) []byte {
 	if nombre, exists := body["NombreParcela"]; exists {
 		data["NombreParcela"] = nombre
 	}
-	if tamaño, exists := body["TamañoParcela"]; exists {
-		data["TamañoParcela"] = tamaño
+	if tamaño, exists := body["TamanoParcela"]; exists {
+		data["TamanoParcela"] = tamaño
 	}
 	jsonData, _ := json.Marshal(data)
 	fmt.Println("Datos enviados:", string(jsonData))
@@ -660,8 +787,75 @@ func updateGeolocalizacion(geoData map[string]interface{}) error {
 	return err
 }
 
+func actualizarAreaTotalFinca(fincaID int) error {
+	log.Println("Este es un mensaje de depuración")
+
+	fmt.Println("Antes del print de query params")
+	query := fmt.Sprintf("?query=FkFincaParcela.Id:%d", fincaID)
+	fmt.Printf("[DEBUG] Query params: %s\n", query)
+
+	// Consultar la tabla FincaParcela
+	resp, err := services.Metodo_get("API_CRUD_FINCA", "/v1/FincaParcela", query)
+	if err != nil {
+		return fmt.Errorf("error al obtener FincaParcela: %v", err)
+	}
+	fmt.Printf("[DEBUG] Respuesta cruda de FincaParcela: %s\n", string(resp))
+
+	var fincaParcelaData map[string]interface{}
+	if err := json.Unmarshal(resp, &fincaParcelaData); err != nil {
+		return fmt.Errorf("error al deserializar respuesta: %v", err)
+	}
+
+	// Verifica si la respuesta contiene la propiedad que esperas
+	data, exists := fincaParcelaData["Data"].([]interface{})
+	if !exists {
+		return fmt.Errorf("No se encontró el campo 'data' en la respuesta de FincaParcela")
+	}
+
+	// Inicializa variables para calcular el área total
+	var areaTotal float64
+	var totalParcelas int
+
+	// Iterar sobre las parcelas para sumar el área total
+	for _, parcela := range data {
+		parcelaMap := parcela.(map[string]interface{})
+		fkParcelaFinca, ok := parcelaMap["FkParcelaFinca"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("No se encontró FkParcelaFinca dentro de la parcela")
+		}
+
+		tamano, ok := fkParcelaFinca["TamanoParcela"].(float64)
+		if !ok {
+			return fmt.Errorf("No se encontró el tamaño de la parcela en FkParcelaFinca")
+		}
+
+		// Sumar el tamaño de la parcela al área total
+		areaTotal += tamano
+		totalParcelas++
+	}
+
+	// Construir el body con ambos campos
+	body := map[string]interface{}{
+		"AreaTotal":     areaTotal,
+		"TotalParcelas": totalParcelas,
+	}
+	jsonBody, _ := json.Marshal(body)
+	fmt.Printf("[DEBUG] Payload para PATCH: %s\n", string(jsonBody))
+
+	// Actualizar la finca con los valores calculados
+	idStr := strconv.Itoa(fincaID)
+	_, err = services.Metodo_patch("API_CRUD_FINCA", "/v1/Finca", idStr, jsonBody)
+	if err != nil {
+		return fmt.Errorf("error al actualizar finca: %v", err)
+	}
+
+	fmt.Println("[DEBUG] Área total calculada:", areaTotal)
+	fmt.Println("[DEBUG] Payload JSON a enviar:", string(jsonBody))
+
+	return nil
+}
+
 // **Sección del Arrendatario
-// Registrar Finca
 // @Title Create
 // @Description create Gestion_finca
 // @Param	body		body 	models.Gestion_finca	true		"body for Gestion_finca content"
@@ -699,53 +893,135 @@ func (c *Gestion_fincaController) Post_Arrendatario() {
 	c.ServeJSON()
 }
 
-// Registrar Arredamiento
-// @Title Create
-// @Description create Gestion_finca
-// @Param	body		body 	models.Gestion_finca	true		"body for Gestion_finca content"
-// @Success 201 {object} models.Gestion_finca
-// @Failure 403 body is empty
-// @router /arrendatario/arrendamiento/ [post]
-func (c *Gestion_fincaController) Post_Arrendamiento() {
-	fmt.Println("Registrar arrendamiento")
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la solicitud"}
-		c.ServeJSON()
+// GetDetalles obtiene una finca con todas sus parcelas y arrendamientos activos
+// @Title GetDetalles
+// @Description Obtener finca + parcelas + arrendamientos
+// @Param    id      path    string  true        "ID de la finca"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400,404,500 {object} map[string]string
+// @router /detalles/:id [get]
+func (c *Gestion_fincaController) GetDetalles() {
+	id := c.Ctx.Input.Param(":id")
+	if id == "" {
+		c.respondWithError("ID de finca obligatorio")
 		return
 	}
-	// Formatear las fechas antes de enviarla al API CRUD en formato timestamp
-	if fechaInicio, ok := body["FechaInicio"].(string); ok {
-		parsedFechaInicio, err := time.Parse("2006-01-02", fechaInicio)
-		if err == nil {
-			body["FechaInicio"] = parsedFechaInicio.Format(time.RFC3339Nano) // Formato con timestamp
-		}
-	}
 
-	if fechaFin, ok := body["FechaFin"].(string); ok {
-		parsedFechaFin, err := time.Parse("2006-01-02", fechaFin)
-		if err == nil {
-			body["FechaFin"] = parsedFechaFin.Format(time.RFC3339Nano) // Formato con timestamp
-		}
-	}
-
-	// Convertir a JSON para enviar a la API de arrendatarios
-	jsonData, _ := json.Marshal(body)
-	fmt.Println("body: ", body)
-	fmt.Println("json a enviar: ", string(jsonData))
-	// Llamar a la API CRUD
-	response, err := services.Metodo_post("API_CRUD_FINCA", "/v1/Arrendamiento", jsonData)
+	// 1. Traer finca
+	fincaResp, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Finca/", id)
 	if err != nil {
-		c.respondWithError("Error al crear arrendamiento", err.Error())
+		c.respondWithError("Error al obtener la finca", err.Error())
 		return
 	}
-	fmt.Println("Respuesta de la API:", string(response))
-
-	// Respuesta exitosa
-	c.Data["json"] = map[string]interface{}{
-		"mensaje": "Arrendamiento creado con exito",
+	var fincaData struct {
+		Data struct {
+			Id      int                    `json:"Id"`
+			Nombre  string                 `json:"Nombre"`
+			FkFinca map[string]interface{} `json:"FkFinca"`
+		}
 	}
+	if err := json.Unmarshal(fincaResp, &fincaData); err != nil {
+		c.respondWithError("Respuesta inválida de finca", err.Error())
+		return
+	}
+
+	// 2. Traer parcelas de la finca
+	qp := "?query=FkFincaParcela.Id:" + id
+	parcelasResp, err := services.Metodo_get("API_CRUD_FINCA", "/v1/FincaParcela", qp)
+	if err != nil {
+		c.respondWithError("Error al obtener parcelas", err.Error())
+		return
+	}
+	var fpData struct {
+		Data []struct {
+			FkParcelaFinca struct {
+				Id            int     `json:"Id"`
+				NombreParcela string  `json:"NombreParcela"`
+				TamanoParcela float64 `json:"TamañoParcela"`
+			} `json:"FkParcelaFinca"`
+		}
+	}
+	if err := json.Unmarshal(parcelasResp, &fpData); err != nil {
+		c.respondWithError("Respuesta inválida de parcelas", err.Error())
+		return
+	}
+
+	// 3. Por cada parcela, revisar arrendamiento activo
+	detalles := make([]map[string]interface{}, 0, len(fpData.Data))
+	var AreaTotal float64
+	for _, fp := range fpData.Data {
+		dto := map[string]interface{}{
+			"Id":            fp.FkParcelaFinca.Id,
+			"NombreParcela": fp.FkParcelaFinca.NombreParcela,
+			"TamanoParcela": fp.FkParcelaFinca.TamanoParcela,
+		}
+		AreaTotal += fp.FkParcelaFinca.TamanoParcela
+
+		// arrendamiento activo
+		query := fmt.Sprintf("?query=FkParcela:%d&Activo:true", fp.FkParcelaFinca.Id)
+		arrResp, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Arrendamiento_Parcela", query)
+		fmt.Println("esta es la respuesta de arrendamiento activo: ", string(arrResp))
+		if err == nil {
+			var arrData struct {
+				Data []struct {
+					FkArrendamiento struct {
+						Id          int       `json:"Id"`
+						FechaInicio time.Time `json:"FechaInicio"`
+						FechaFin    time.Time `json:"FechaFin"`
+						Activo      bool      `json:"Activo"`
+					} `json:"FkArrendamiento"`
+				}
+			}
+			if err2 := json.Unmarshal(arrResp, &arrData); err2 == nil && len(arrData.Data) > 0 {
+				a := arrData.Data[0].FkArrendamiento
+				dto["ArrendamientoId"] = a.Id
+				dto["FechaInicio"] = a.FechaInicio
+				dto["FechaFin"] = a.FechaFin
+				dto["Activo"] = a.Activo
+			}
+		}
+		detalles = append(detalles, dto)
+	}
+
+	// 4. Responder
+	result := map[string]interface{}{
+		"Id":            fincaData.Data.Id,
+		"Nombre":        fincaData.Data.Nombre,
+		"TipoSuelo":     fincaData.Data.FkFinca["Nombre"],
+		"TotalParcelas": len(detalles),
+		"AreaTotal":     AreaTotal,
+		"Parcelas":      detalles,
+	}
+	c.Data["json"] = result
+	c.ServeJSON()
+}
+
+// DesactivarArrendamiento marca como inactivo un arrendamiento existente
+// @Title DesactivarArrendamiento
+// @Description Pone Activo=false en un arrendamiento
+// @Param    id      path    string  true        "ID del arrendamiento"
+// @Success 200 {object} map[string]string
+// @Failure 400,404,500 {object} map[string]string
+// @router /arrendamiento/desactivar/:id [patch]
+func (c *Gestion_fincaController) DesactivarArrendamiento() {
+	id := c.Ctx.Input.Param(":id")
+	if id == "" {
+		c.respondWithError("ID de arrendamiento requerido")
+		return
+	}
+
+	// Construir payload
+	payload := map[string]interface{}{"Activo": false}
+	data, _ := json.Marshal(payload)
+
+	// PATCH al CRUD
+	_, err := services.Metodo_patch("API_CRUD_FINCA", "/v1/Arrendamiento", id, data)
+	if err != nil {
+		c.respondWithError("Error al desactivar arrendamiento", err.Error())
+		return
+	}
+
+	c.Data["json"] = map[string]string{"mensaje": "Arrendamiento desactivado"}
 	c.ServeJSON()
 }
 
