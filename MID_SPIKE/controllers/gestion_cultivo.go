@@ -41,7 +41,7 @@ func (c *Gestion_cultivoController) Post() {
 		return
 	}
 
-	// Obtener el ID del usuario desde el token JWT
+	// Obtener token y validar
 	token := c.Ctx.Input.Header("Authorization")
 	if token == "" {
 		c.Data["json"] = map[string]interface{}{"error": "No se proporcionó token"}
@@ -55,188 +55,167 @@ func (c *Gestion_cultivoController) Post() {
 		c.ServeJSON()
 		return
 	}
-
 	userID := claims.UserID
-	fmt.Println(userID)
+	fmt.Println("Usuario autenticado:", userID)
 
-	//obtener el id de tipo de arroz
-	tipoArrozID, err := getTipoArroz(body["tipo_arroz"].(string))
-	if err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al obtener el tipo de arroz"}
+	// Validar campos obligatorios
+	idParcela, ok := body["Id_Parcela"].(float64)
+	if !ok {
+		c.Data["json"] = map[string]interface{}{"error": "Falta el campo id_parcela"}
 		c.ServeJSON()
 		return
 	}
-	fmt.Println("Id de Tipo de arroz: ", tipoArrozID)
 
-	jsonData, _ := json.Marshal(body)
-	fmt.Println("Enviando datos al cultivo", string(jsonData))
-	response, err := services.Metodo_post("API_CRUD_FINCA", "/v1/Registro_Cultivo", jsonData)
+	// Validar si el usuario tiene derecho sobre la parcela
+	// Si viene con fk_arrendamiento, validar que esa parcela esté en ese contrato
+	// Si no viene, validar que la parcela pertenezca a una finca del propietario
+	if fkArrRaw, exists := body["Id_Arrendamiento"]; exists && fkArrRaw != nil {
+		// Validar que la parcela esté en el arrendamiento
+		fkArrendamiento := int(fkArrRaw.(float64))
+		isValida, err := validarParcelaEnArrendamiento(fkArrendamiento, int(idParcela))
+		if err != nil || !isValida {
+			c.Data["json"] = map[string]interface{}{"error": "La parcela no está asociada a ese arrendamiento o hay un error"}
+			c.ServeJSON()
+			return
+		}
+	} else {
+		// Validar que la parcela pertenece a una finca del propietario
+		esDelUsuario, err := validarParcelaDelPropietario(userID, int(idParcela))
+		if err != nil || !esDelUsuario {
+			c.Data["json"] = map[string]interface{}{"error": "La parcela no pertenece a ninguna finca del usuario"}
+			c.ServeJSON()
+			return
+		}
+	}
+
+	fkTipoArrozRaw, ok := body["FkTipoArroz"].(float64)
+	if !ok {
+		c.Data["json"] = map[string]interface{}{"error": "Falta o es inválido el campo fk_tipo_arroz"}
+		c.ServeJSON()
+		return
+	}
+
+	fkMetodoSiembraRaw, ok := body["FkMetodoSiembra"].(float64)
+	if !ok {
+		c.Data["json"] = map[string]interface{}{"error": "Falta o es inválido el campo fk_metodo_siembra"}
+		c.ServeJSON()
+		return
+	}
+
+	fkEstadoRaw, ok := body["FkEstadoFenologicoCultivo"].(float64)
+	if !ok {
+		c.Data["json"] = map[string]interface{}{"error": "Falta o es inválido el campo fk_estado_fenologico_cultivo"}
+		c.ServeJSON()
+		return
+	}
+
+	// Construir json para enviar al API CRUD
+	cultivo := map[string]interface{}{
+		"FkTipoArroz":               map[string]interface{}{"Id": int(fkTipoArrozRaw)},
+		"FkMetodoSiembra":           map[string]interface{}{"Id": int(fkMetodoSiembraRaw)},
+		"FkEstadoFenologicoCultivo": map[string]interface{}{"Id": int(fkEstadoRaw)},
+		"Id_Parcela":                int(idParcela),
+		"FechaSiembra":              body["FechaSiembra"],
+		"CicloDias":                 body["CicloDias"],
+		"AreaSembrada":              body["AreaSembrada"],
+		"Nombre":                    body["NombreCultivo"],
+		"Id_Usuario":                userID,
+	}
+
+	// Id_Arrendamiento si aplica, mandar entero no objeto
+	if fkArrRaw, exists := body["Id_Arrendamiento"]; exists && fkArrRaw != nil {
+		cultivo["Id_Arrendamiento"] = int(fkArrRaw.(float64))
+	}
+
+	// Hacer POST al API CRUD CULTIVO
+	cultivoJSON, _ := json.Marshal(cultivo)
+	fmt.Println("Este es el json para regitrar cultivo: ", string(cultivoJSON))
+	response, err := services.Metodo_post("API_CRUD_CULTIVO", "/v1/Registro_Cultivo", cultivoJSON)
 	if err != nil {
-		c.respondWithError("Error al registrar un cultivo")
+		c.Data["json"] = map[string]interface{}{"error": "Error al registrar cultivo", "detalle": err.Error()}
+		c.ServeJSON()
 		return
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(response, &result); err != nil {
-		c.respondWithError("Error al leer respuesta de cultivo")
+	var parsedResp map[string]interface{}
+	if err := json.Unmarshal(response, &parsedResp); err != nil {
+		c.Data["json"] = map[string]interface{}{"error": "Error al leer respuesta del servidor", "detalle": err.Error()}
+		c.ServeJSON()
 		return
 	}
+
+	dataRaw := parsedResp["Data"]
+	dataSlice, ok := dataRaw.([]interface{})
+	if !ok || len(dataSlice) == 0 {
+		c.Data["json"] = map[string]interface{}{"error": "Formato inesperado o vacío en el campo Data"}
+		c.ServeJSON()
+		return
+	}
+
+	// Acceder al primer objeto del arreglo
+	dataMap, ok := dataSlice[0].(map[string]interface{})
+	if !ok {
+		c.Data["json"] = map[string]interface{}{"error": "Elemento en Data no es un objeto esperado"}
+		c.ServeJSON()
+		return
+	}
+
+	c.Data["json"] = map[string]interface{}{"data": dataMap}
+	c.ServeJSON()
 
 }
 
-func getTipoArroz(nombreTipo string) (int, error) {
-	response, err := services.Metodo_get("API_CRUD_CULTIVO", "/v1/tipo_arroz?query=nombre:", nombreTipo)
+// validarParcelaEnArrendamiento consulta si la parcela está en ese contrato
+func validarParcelaEnArrendamiento(fkArrendamiento int, idParcela int) (bool, error) {
+	endpoint := fmt.Sprintf("?query=FkArrendamiento.Id:%d,Id_Parcela:%d", fkArrendamiento, idParcela)
+	resp, err := services.Metodo_get("API_CRUD_CULTIVO", "/v1/Arrendamiento_Parcela", endpoint)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
 
 	var data map[string]interface{}
-	if err := json.Unmarshal(response, &data); err != nil {
-		return 0, err
+	if err := json.Unmarshal(resp, &data); err != nil {
+		return false, err
 	}
 
-	if resultados, ok := data["Data"].([]interface{}); ok && len(resultados) > 0 {
-		tipoArroz := resultados[0].(map[string]interface{})
-		return int(tipoArroz["Id"].(float64)), nil
+	if results, ok := data["Data"].([]interface{}); ok && len(results) > 0 {
+		return true, nil
 	}
-	return 0, fmt.Errorf("tipo de arroz no encontrado")
-
+	return false, nil
 }
 
-func getMetodoSiembra(nombreTipo string) (int, error) {
-	response, err := services.Metodo_get("API_CRUD_CULTIVO", "/v1/metodo_siembra?query=nombre:", nombreTipo)
+// validarParcelaDelPropietario consulta si la parcela está en finca del usuario
+func validarParcelaDelPropietario(userID int, idParcela int) (bool, error) {
+	// Paso 1: consultar parcela para obtener id finca
+	endpointParcela := fmt.Sprintf("?query=Id:%d", idParcela)
+	respParcela, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Parcela", endpointParcela)
 	if err != nil {
-		return 0, err
+		return false, err
 	}
-	var data map[string]interface{}
-	if err := json.Unmarshal(response, &data); err != nil {
-		return 0, err
+	var dataParcela map[string]interface{}
+	if err := json.Unmarshal(respParcela, &dataParcela); err != nil {
+		return false, err
 	}
+	if dataList, ok := dataParcela["Data"].([]interface{}); ok && len(dataList) > 0 {
+		parcela := dataList[0].(map[string]interface{})
+		finca := parcela["FkFincaParcela"].(map[string]interface{})
+		idFinca := int(finca["Id"].(float64))
 
-	if resultados, ok := data["Data"].([]interface{}); ok && len(resultados) > 0 {
-		metodo_siembra := resultados[0].(map[string]interface{})
-		return int(metodo_siembra["Id"].(float64)), nil
+		// Paso 2: consultar finca y validar usuario
+		endpointFinca := fmt.Sprintf("?query=Id:%d,Id_Usuario:%d", idFinca, userID)
+		respFinca, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Finca", endpointFinca)
+		if err != nil {
+			return false, err
+		}
+		var dataFinca map[string]interface{}
+		if err := json.Unmarshal(respFinca, &dataFinca); err != nil {
+			return false, err
+		}
+		if fincaList, ok := dataFinca["Data"].([]interface{}); ok && len(fincaList) > 0 {
+			return true, nil
+		}
 	}
-	return 0, fmt.Errorf("Metodo de siembra no encontrado")
-
-}
-
-func getEstadoFenologico(nombreTipo string) (int, error) {
-	response, err := services.Metodo_get("API_CRUD_FINCA", "/v1/estado_fenologico_cultivo?query=nombre:", nombreTipo)
-	if err != nil {
-		return 0, err
-	}
-
-	var data map[string]interface{}
-	if err := json.Unmarshal(response, &data); err != nil {
-		return 0, err
-	}
-
-	if resultados, ok := data["Data"].([]interface{}); ok && len(resultados) > 0 {
-		estado_fenologico := resultados[0].(map[string]interface{})
-		return int(estado_fenologico["Id"].(float64)), nil
-	}
-	return 0, fmt.Errorf("Estado fenologico no encontrado")
-
-}
-
-// Registrar tipo Arroz
-// @Title Create
-// @Description create Gestion_cultivo
-// @Param	body		body 	models.Gestion_cultivo	true		"body for Gestion_cultivo content"
-// @Success 201 {object} models.Gestion_cultivo
-// @Failure 403 body is empty
-// @router tipo/arroz [post]
-func (c *Gestion_cultivoController) PostTipoArroz() {
-	fmt.Println("Registrar tipo de arroz")
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la solicitud"}
-		c.ServeJSON()
-		return
-	}
-
-	jsonData, _ := json.Marshal(body)
-
-	response, err := services.Metodo_post("API_CRUD_CULTIVO", "/v1/tipo_arroz", jsonData)
-	if err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al crear tipo de arroz", "detalle": err.Error()}
-		c.ServeJSON()
-		return
-	}
-	fmt.Println("Respuesta de la API : ", string(response))
-
-	c.Data["json"] = map[string]interface{}{
-		"menssage": "Tipo de arroz creado con exito",
-	}
-	c.ServeJSON()
-}
-
-// Registrar MetodO Siembra
-// @Title Create
-// @Description create Gestion_cultivo
-// @Param	body		body 	models.Gestion_cultivo	true		"body for Gestion_cultivo content"
-// @Success 201 {object} models.Gestion_cultivo
-// @Failure 403 body is empty
-// @router crear/metodosiembra/ [post]
-func (c *Gestion_cultivoController) PostMetodoSiembra() {
-	fmt.Println("Registrar tipo de arroz")
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la solicitud"}
-		c.ServeJSON()
-		return
-	}
-
-	jsonData, _ := json.Marshal(body)
-
-	response, err := services.Metodo_post("API_CRUD_CULTIVO", "/v1/metodo_siembra", jsonData)
-	if err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al crear tipo de arroz", "detalle": err.Error()}
-		c.ServeJSON()
-		return
-	}
-	fmt.Println("Respuesta de la API : ", string(response))
-
-	c.Data["json"] = map[string]interface{}{
-		"menssage": "Tipo de arroz creado con exito",
-	}
-	c.ServeJSON()
-}
-
-// Registrar MetodO Siembra
-// @Title Create
-// @Description create Gestion_cultivo
-// @Param	body		body 	models.Gestion_cultivo	true		"body for Gestion_cultivo content"
-// @Success 201 {object} models.Gestion_cultivo
-// @Failure 403 body is empty
-// @router crear/estadofenolofico/cultivo/ [post]
-func (c *Gestion_cultivoController) PostEstadoFenologico() {
-	fmt.Println("Registrar tipo de arroz")
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la solicitud"}
-		c.ServeJSON()
-		return
-	}
-
-	jsonData, _ := json.Marshal(body)
-
-	response, err := services.Metodo_post("API_CRUD_CULTIVO", "/v1/Estado_fenologico_cultivo", jsonData)
-	if err != nil {
-		c.Data["json"] = map[string]interface{}{"error": "Error al crear tipo de arroz", "detalle": err.Error()}
-		c.ServeJSON()
-		return
-	}
-	fmt.Println("Respuesta de la API : ", string(response))
-
-	c.Data["json"] = map[string]interface{}{
-		"menssage": "Tipo de arroz creado con exito",
-	}
-	c.ServeJSON()
+	return false, nil
 }
 
 // GetOne ...

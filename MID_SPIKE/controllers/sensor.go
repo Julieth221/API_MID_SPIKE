@@ -200,11 +200,9 @@ func (c *SensorController) Post() {
 		"FkTipoSensor":            map[string]interface{}{"Id": int(tipoSensorID)},
 		"FkGeolocalizacionSensor": map[string]interface{}{"Id": int(geolocalizacionID)},
 		"FechaInstalacion":        body["FechaInstalacion"],
-		"FkCultivo": map[string]interface{}{
-			"Id": body["FkCultivo"],
-		},
-		"FkUsuario":           map[string]interface{}{"Id": body["FkUsuario"]},
-		"IdentificadorSensor": body["IdentificadorSensor"],
+		"FkCultivo":               body["FkCultivo"],
+		"FkUsuario":               body["FkUsuario"],
+		"IdentificadorSensor":     body["IdentificadorSensor"],
 	}
 
 	// Convertir a JSON para enviar al API CRUD de Sensor

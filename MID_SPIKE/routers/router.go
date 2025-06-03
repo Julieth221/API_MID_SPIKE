@@ -45,6 +45,17 @@ func init() {
 				&controllers.Owner_historial_parcelaController{},
 			),
 		),
+
+		beego.NSNamespace("/gestion_cultivo",
+			beego.NSInclude(
+				&controllers.Gestion_cultivoController{},
+			),
+		),
+		beego.NSNamespace("/gestion_insumo_cultivo",
+			beego.NSInclude(
+				&controllers.Gestion_insumo_cultivoController{},
+			),
+		),
 	)
 
 	beego.AddNamespace(ns)
