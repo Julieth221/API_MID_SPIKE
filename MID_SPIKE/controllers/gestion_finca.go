@@ -226,12 +226,6 @@ func (c *Gestion_fincaController) CrearParcelasParaFincaExistente() {
 		return
 	}
 
-	// if len(parcelas) == 0 {
-	// 	c.Data["json"] = map[string]interface{}{"error": "Debe enviar al menos una parcela"}
-	// 	c.ServeJSON()
-	// 	return
-	// }
-
 	// Reutilizar función existente
 	if err := crearParcelas(parcelas, fincaID); err != nil {
 		c.Data["json"] = map[string]interface{}{"error": "Error al crear parcelas", "details": err.Error()}
@@ -705,85 +699,126 @@ func (c *Gestion_fincaController) Patch() {
 	c.ServeJSON()
 }
 
-// Actualizar una parcela parcialmente (Patch)
-// @Title PatchParcela
-// @Description Actualiza solo los campos proporcionados de una parcela
-// @Param	id		path 	int	true		"ID de la parcela a actualizar"
-// @Param	body	body 	map[string]interface{}	true	"Datos de la parcela a actualizar"
+// Crear una nueva versión de la parcela
+// @Title PostNuevaVersionParcela
+// @Description Crea una nueva versión de la parcela referenciando a la anterior
+// @Param	id		path 	int	true		"ID de la parcela original"
+// @Param	body	body 	map[string]interface{}	true	"Datos de la nueva versión"
 // @Success 200 {object} map[string]interface{}
-// @Failure 400 ID inválido o datos incorrectos
-// @router /parcela/:id [patch]
-func (c *Gestion_fincaController) PatchParcela() {
-	fmt.Println("Actualizar parcialmente una parcela")
+// @Failure 400 Datos inválidos
+// @router /parcela/versionar/:id [post]
+func (c *Gestion_fincaController) PostNuevaVersionParcela() {
+	fmt.Println("Creando nueva versión de la parcela")
 
-	idParcela := c.Ctx.Input.Param(":id")
-	if idParcela == "" {
+	idParcelaAnterior := c.Ctx.Input.Param(":id") // Id de la parcela existente que se quiere versionar
+	if idParcelaAnterior == "" {
 		c.respondWithError("ID de parcela no proporcionado")
 		return
 	}
 
 	var body map[string]interface{}
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body); err != nil {
-		c.respondWithError("Error al procesar la solicitud")
+		c.respondWithError("Error al procesar el cuerpo de la solicitud")
 		return
 	}
-	fmt.Println("Body que ingresa para actualizar una parcela:", body)
 
-	parcelaData := ParcelaData(body)
-
-	response, err := services.Metodo_patch("API_CRUD_FINCA", "/v1/Parcela", idParcela, parcelaData)
+	// 1. Obtener los datos de la parcela anterior
+	parcelaAntData, err := services.Metodo_get("API_CRUD_FINCA", "/v1/Parcela/", idParcelaAnterior)
 	if err != nil {
-		c.respondWithError("Error al actualizar la parcela", err.Error())
+		c.respondWithError("Error obteniendo la parcela anterior", err.Error())
+		return
+	}
+	var parcelaAnterior map[string]interface{}
+	_ = json.Unmarshal(parcelaAntData, &parcelaAnterior)
+	idParcelaAnteriorInt, err := strconv.Atoi(idParcelaAnterior)
+	if err != nil {
+		c.respondWithError("ID de parcela anterior no es un número válido", err.Error())
 		return
 	}
 
-	// Actualizar geolocalización si se envía en la solicitud
+	data, ok := parcelaAnterior["Data"].(map[string]interface{})
+	if !ok {
+		c.respondWithError("Error: no se encontró el campo Data en la respuesta de la parcela anterior")
+		return
+	}
+
+	versionAnterior, ok := data["Version"].(float64)
+	if !ok {
+		c.respondWithError("Error: la versión de la parcela anterior no es válida o no existe")
+		return
+	}
+
+	// 3. Desactivar la versión anterior
+	data["Activo"] = false
+	_ = updateParcelaActiva(idParcelaAnterior, data)
+
+	// 4. Construir nueva parcela
+	nuevaParcela := map[string]interface{}{
+		"NombreParcela":  body["NombreParcela"],
+		"TamanoParcela":  body["TamanoParcela"],
+		"FkFincaParcela": map[string]interface{}{"Id": int(body["Finca"].(float64))},
+		"MotivoCambio":   body["MotivoCambio"],
+		"IdParcelaPadre": map[string]interface{}{"Id": idParcelaAnteriorInt},
+		"Version":        int(versionAnterior) + 1, // Se incrementa la versión de forma segura
+		"Activo":         true,
+	}
+
+	nuevaParcelaJSON, _ := json.Marshal(nuevaParcela)
+	// fmt.Println("Este es el json que se va a envair a Parcela para crear la nueva version: ", string(nuevaParcelaJSON))
+	resp, err := services.Metodo_post("API_CRUD_FINCA", "/v1/Parcela", nuevaParcelaJSON)
+	if err != nil {
+		c.respondWithError("Error al crear nueva versión de parcela", err.Error())
+		return
+	}
+
+	// fmt.Println("Este es el reponse de crear una nueva version de parcela: ", string(resp))
+
+	// 5. Crear geolocalización si está presente
+	var geoID int
 	if geoData, exists := body["Geolocalizacion"].(map[string]interface{}); exists {
-		if err := updateGeolocalizacion(geoData); err != nil {
-			c.respondWithError("Error al actualizar la geolocalización", err.Error())
+		geoID, err = crearGeolocalizacion(geoData)
+		if err != nil {
+			c.respondWithError("Error al crear geolocalización", err.Error())
 			return
 		}
 	}
 
-	// Obtener finca_id para actualizar el área total
-	if fincaID, exists := body["Finca"].(float64); exists {
+	// 6. Obtener ID de la nueva parcela desde la respuesta
+	var parcelaResponse map[string]interface{}
+	_ = json.Unmarshal(resp, &parcelaResponse)
+	nuevaParcelaID := int(parcelaResponse["Data"].(map[string]interface{})["Id"].(float64))
+
+	// 7. Relacionar finca, parcela y geolocalización
+	fincaID := int(body["Finca"].(float64))
+	err = relacionarFincaParcela(fincaID, nuevaParcelaID, geoID)
+	if err != nil {
+		c.respondWithError("Error al relacionar FincaParcela", err.Error())
+		return
+	}
+
+	// 8. Actualizar área total de finca
+	if fincaID, ok := body["Finca"].(float64); ok {
 		err := actualizarAreaTotalFinca(int(fincaID))
 		if err != nil {
-			fmt.Println("Advertencia: no se pudo actualizar el área total de la finca:", err)
+			fmt.Println("Advertencia al actualizar área total:", err)
 		}
 	}
 
 	c.Data["json"] = map[string]interface{}{
-		"mensaje":  "Parcela actualizada correctamente",
-		"response": string(response),
+		"mensaje":  "Nueva versión de parcela creada correctamente",
+		"response": string(resp),
 	}
 	c.ServeJSON()
 }
 
-// Construir los datos para la actualización de la parcela
-func ParcelaData(body map[string]interface{}) []byte {
-	data := make(map[string]interface{})
-	if nombre, exists := body["NombreParcela"]; exists {
-		data["NombreParcela"] = nombre
+func updateParcelaActiva(id string, data map[string]interface{}) error {
+	fmt.Println("Se va actualizar la parcela: ", id, data)
+	parcelaJSON, err := json.Marshal(data)
+	if err != nil {
+		return err
 	}
-	if tamaño, exists := body["TamanoParcela"]; exists {
-		data["TamanoParcela"] = tamaño
-	}
-	jsonData, _ := json.Marshal(data)
-	fmt.Println("Datos enviados:", string(jsonData))
-	return jsonData
-}
 
-// Actualizar la geolocalización si existe en la solicitud
-func updateGeolocalizacion(geoData map[string]interface{}) error {
-	geoID, ok := geoData["id_geolocalizacion"].(float64)
-	if !ok {
-		return fmt.Errorf("ID de geolocalización inválido")
-	}
-	geoIDStr := strconv.Itoa(int(geoID))
-	geoBody, _ := json.Marshal(geoData)
-	fmt.Println("este es el body de geolocalizacion:", string(geoBody))
-	_, err := services.Metodo_patch("API_CRUD_FINCA", "/v1/Geolocalizacion", geoIDStr, geoBody)
+	_, err = services.Metodo_put("API_CRUD_FINCA", "/v1/Parcela", id, parcelaJSON)
 	return err
 }
 

@@ -39,6 +39,12 @@ func init() {
 				&controllers.Gestion_arrendamientoController{},
 			),
 		),
+
+		beego.NSNamespace("/historial_parcela",
+			beego.NSInclude(
+				&controllers.Owner_historial_parcelaController{},
+			),
+		),
 	)
 
 	beego.AddNamespace(ns)
