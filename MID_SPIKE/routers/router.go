@@ -56,6 +56,11 @@ func init() {
 				&controllers.Gestion_insumo_cultivoController{},
 			),
 		),
+		beego.NSNamespace("/monitoreo_cultivo_sensor",
+			beego.NSInclude(
+				&controllers.Monitoreo_cultivo_sensorController{},
+			),
+		),
 	)
 
 	beego.AddNamespace(ns)
