@@ -189,6 +189,7 @@ func (c *UsuarioController) Post() {
 
 	c.Data["json"] = map[string]interface{}{
 		"Message": "¡Usuario creado exitosamente!",
+	
 	}
 	c.ServeJSON()
 
