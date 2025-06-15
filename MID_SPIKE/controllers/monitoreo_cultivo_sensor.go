@@ -50,10 +50,12 @@ func (c *Monitoreo_cultivo_sensorController) GetOne() {
 
 }
 
-// GetOne ...
-// @Title GetOne
-// @Description get Monitoreo_cultivo_sensor by id
-// @Param	id		path 	string	true		"The key for staticblock"
+// SensoresPorCultivo ...
+// @Title SensoresPorCultivo
+// @Description Obtiene los sensores de un cultivo, filtrando las lecturas por rango de fechas
+// @Param   idCultivo   path    string  true   "ID del cultivo"
+// @Param   startDate   query   string  false  "Fecha de inicio (YYYY-MM-DD). Si se omite, usa ayer"
+// @Param   endDate     query   string  false  "Fecha de fin (YYYY-MM-DD). Si se omite, usa hoy"
 // @Success 200 {object} models.Monitoreo_cultivo_sensor
 // @Failure 403 :id is empty
 // @router /SensoresPorCultivo/:idCultivo [get]
@@ -67,8 +69,52 @@ func (c *Monitoreo_cultivo_sensorController) SensoresPorCultivo() {
 		return
 	}
 
+	// ────────────────────────────────────────────────────────────────────────
+	// LECTURA DE FILTROS DE FECHA
+	// ────────────────────────────────────────────────────────────────────────
+	// Parámetros opcionales: startDate, endDate (YYYY-MM-DD). Si no vienen,
+	// por defecto usamos ayer (00:00:00) hasta hoy (23:59:59).
+	const layout = "2006-01-02"
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	yesterday := today.AddDate(0, 0, -1).Truncate(24 * time.Hour)
+
+	startStr := c.Ctx.Input.Query("startDate")
+	endStr := c.Ctx.Input.Query("endDate")
+
+	var (
+		startDate time.Time
+		endDate   time.Time
+		err       error
+	)
+
+	if startStr == "" {
+		startDate = yesterday
+	} else {
+		startDate, err = time.Parse(layout, startStr)
+		if err != nil {
+			c.Ctx.Output.SetStatus(http.StatusBadRequest)
+			c.Data["json"] = map[string]string{"error": "startDate inválido, debe ser YYYY-MM-DD"}
+			c.ServeJSON()
+			return
+		}
+	}
+	if endStr == "" {
+		endDate = today
+	} else {
+		endDate, err = time.Parse(layout, endStr)
+		if err != nil {
+			c.Ctx.Output.SetStatus(http.StatusBadRequest)
+			c.Data["json"] = map[string]string{"error": "endDate inválido, debe ser YYYY-MM-DD"}
+			c.ServeJSON()
+			return
+		}
+		// ajustar al final del día
+		endDate = time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, now.Location())
+	}
+	// ────────────────────────────────────────────────────────────────────────
+
 	// 2) Llamar al API CRUD de Sensor para obtener sensores con FkCultivo = idCultivo
-	//    Ejemplo: GET /v1/Sensor?query=FkCultivo:<idCultivo>
 	query := fmt.Sprintf("?query=FkCultivo:%s", idCultivo)
 	respBytes, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/Sensor", query)
 	if err != nil {
@@ -88,7 +134,6 @@ func (c *Monitoreo_cultivo_sensorController) SensoresPorCultivo() {
 	}
 	dataArray, ok := crudResp["Data"].([]interface{})
 	if !ok || len(dataArray) == 0 {
-		// Si no hay sensores, retornamos un arreglo vacío
 		c.Data["json"] = map[string]interface{}{
 			"IdCultivo": idCultivo,
 			"Sensores":  []interface{}{},
@@ -97,132 +142,63 @@ func (c *Monitoreo_cultivo_sensorController) SensoresPorCultivo() {
 		return
 	}
 
-	// 4) Extraer una lista de identificadores de sensor (y opcionalmente su Id interno)
+	// 4) Extraer lista de sensores
 	type SensorInfo struct {
 		IdSensor            int    `json:"IdSensor"`
 		IdentificadorSensor string `json:"IdentificadorSensor"`
 	}
 	sensores := make([]SensorInfo, 0, len(dataArray))
-	identificadores := make([]string, 0, len(dataArray))
 	for _, elem := range dataArray {
 		if m, ok := elem.(map[string]interface{}); ok {
-			// Suponemos que el CRUD devuelve algo así:
-			// { "Id": 10, "FkCultivo": 5, "IdentificadorSensor": "sensor-001", … }
 			idFloat, _ := m["Id"].(float64)
 			ident, _ := m["IdentificadorSensor"].(string)
 			sensores = append(sensores, SensorInfo{
 				IdSensor:            int(idFloat),
 				IdentificadorSensor: ident,
 			})
-			identificadores = append(identificadores, fmt.Sprintf(`"%s"`, ident))
 		}
 	}
 
-	// 5) Llamar a Firebase RTDB para traer todas las lecturas cuyos identificadores estén en esta lista
-	//    Usaremos la API REST de Realtime Database:
-	//
-	//    GET https://<DATABASE_URL>/LecturaSensor.json?
-	//         orderBy="identificador_sensor"&
-	//         startAt="<sensor-001>"&endAt="<sensor-001>\uf8ff"
-	//
-	//    Sin embargo, Firebase REST no permite un IN() directo. La forma más sencilla:
-	//    - Hacer una consulta por cada identificador (por ejemplo: orderBy="identificador_sensor"&equalTo="sensor-001")
-	//    - O si quieres bajar TODAS las lecturas y filtrar en el MID (discúlpalo si la cantidad es pequeña).
-	//
-	//    Aquí haremos la llamada por cada identificador de forma básica. Podrías optimizar haciendo un solo GET que baje todo (por ejemplo /LecturaSensor.json) y luego filtrar en Go, si el volumen lo permite.
-
-	// ------------------------------------------------------------------------
-	// Opción A) Hacer N llamadas a Firebase RTDB (una por cada identificador)
-	// ------------------------------------------------------------------------
-	tipoURL := os.Getenv("FIREBASE_RTDB_URL") // por ejemplo: "https://monitoreocultivoarroz-default-rtdb.firebaseio.com"
-	// secret := os.Getenv("FIREBASE_SECRET")
+	// 5) Por cada sensor, pedir lecturas a Firebase RTDB y filtrar por fecha
+	tipoURL := os.Getenv("FIREBASE_RTDB_URL")
+	client := &http.Client{Timeout: 10 * time.Second}
 	lecturaPorSensor := make(map[string][]map[string]interface{})
-	client := &http.Client{}
 
-	for _, ident := range identificadores {
-		// ident ya viene con comillas dobles porque lo encerramos en fmt.Sprintf(`"%s"`, ident)
-		url := fmt.Sprintf("%s/LecturaSensor.json?orderBy=\"identificador_sensor\"&equalTo=%s", tipoURL, ident)
-
+	for _, s := range sensores {
+		// Consulta RTDB por identificador_sensor
+		// ejemplo: orderBy="identificador_sensor"&equalTo="sensor-001"
+		url := fmt.Sprintf(
+			"%s/LecturaSensor.json?orderBy=\"identificador_sensor\"&equalTo=\"%s\"",
+			tipoURL, s.IdentificadorSensor,
+		)
 		req, _ := http.NewRequest("GET", url, nil)
-		// Si tu RTDB no requiere token extra, no hace falta Authorization. Si necesitas usar el token, agrégalo aquí:
-		// req.Header.Add("Authorization", "Bearer "+<tu_token_de_firebase>)
-
 		resp, err := client.Do(req)
 		if err != nil {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]string{"error": "Error pidiendo datos a RTDB", "detalle": err.Error()}
-			c.ServeJSON()
-			return
+			continue
 		}
-		defer resp.Body.Close()
+		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
 
-		bodyBytes, errRead := ioutil.ReadAll(resp.Body)
-		if errRead != nil {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]string{"error": "Error leyendo body de RTDB", "detalle": errRead.Error()}
-			c.ServeJSON()
-			return
-		}
-
-		// Imprime en consola para depurar la respuesta tal cual llegó:
-		fmt.Printf("RTDB Response (status %d): %s\n", resp.StatusCode, string(bodyBytes))
-
-		if resp.StatusCode != http.StatusOK {
-			// Si no es 200, devolvemos el contenido a Postman para ver qué está llegando
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]interface{}{
-				"error":    "RTDB respondió con status != 200",
-				"status":   resp.StatusCode,
-				"response": string(bodyBytes),
-				"url":      url,
-			}
-			c.ServeJSON()
-			return
-		}
-
-		// Aquí sí hay Status 200: intentamos parsear el JSON
 		var lecturaRes map[string]map[string]interface{}
 		if err := json.Unmarshal(bodyBytes, &lecturaRes); err != nil {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]string{"error": "No se pudo parsear respuesta RTDB", "detalle": err.Error()}
-			c.ServeJSON()
-			return
+			continue
 		}
 
-		// lecturaRes viene como un map de IDs automáticos de Firebase => objeto con campos:
-		//   {
-		//     "-ORTA4sfeUZSJg8TeNUr": { "identificador_sensor": "sensor-001", "datos_sensor": { "temperatura": 26.1, "humedad": 48 }, "fecha_lectura": "..."},
-		//     "-ORTA7MYSPRRp430nfMA": { … },
-		//      …
-		//   }
-		// Queremos sólo la lista de valores sin la key interna:
-		lista := make([]map[string]interface{}, 0, len(lecturaRes))
+		// Filtrar en Go según fecha_lectura entre startDate y endDate
+		filtradas := make([]map[string]interface{}, 0, len(lecturaRes))
 		for _, dato := range lecturaRes {
-			lista = append(lista, dato)
+			if fechaStr, ok := dato["fecha_lectura"].(string); ok {
+				if ts, err := time.Parse(time.RFC3339, fechaStr); err == nil {
+					if !ts.Before(startDate) && !ts.After(endDate) {
+						filtradas = append(filtradas, dato)
+					}
+				}
+			}
 		}
-		// Guardamos la lista en el mapa con clave “identificador_sensor” sin comillas:
-		claveLimpia := strings.Trim(ident, `"`)
-		lecturaPorSensor[claveLimpia] = lista
+		lecturaPorSensor[s.IdentificadorSensor] = filtradas
 	}
 
-	// 6) Construir la respuesta final que se devolverá al front
-	//    Podríamos devolver:
-	//
-	//    {
-	//      "IdCultivo": 123,
-	//      "Sensores": [
-	//         {
-	//           "IdSensor": 10,
-	//           "IdentificadorSensor": "sensor-001",
-	//           "Lecturas": [
-	//              { "fecha_lectura": "...", "datos_sensor": { "temperatura": 25.5, "humedad": 50 } },
-	//              …
-	//           ]
-	//         },
-	//         …
-	//      ]
-	//    }
-	//
+	// 6) Construir respuesta final
 	type RespuestaSensor struct {
 		IdSensor            int                      `json:"IdSensor"`
 		IdentificadorSensor string                   `json:"IdentificadorSensor"`
@@ -237,7 +213,7 @@ func (c *Monitoreo_cultivo_sensorController) SensoresPorCultivo() {
 		})
 	}
 
-	// 7) Devolver JSON final
+	// 7) Devolver JSON final con sólo las lecturas del rango solicitado
 	c.Data["json"] = map[string]interface{}{
 		"IdCultivo": idCultivo,
 		"Sensores":  respuestaSensores,
@@ -475,6 +451,131 @@ func coeficienteFenologico(nombreEstado string) float64 {
 	default:
 		return 1.00
 	}
+}
+
+// ObtenerLecturasSensoresPorFecha ...
+// @Title ObtenerLecturasSensoresPorFecha
+// @Description get Monitoreo_cultivo_sensor by id
+// @Param	id		path 	string	true		"The key for staticblock"
+// @Success 200 {object} models.Monitoreo_cultivo_sensor
+// @Failure 403 :id is empty
+// @router monitoreo/lecturasSensores/:idcultivo [get]
+func (c *Monitoreo_cultivo_sensorController) ObtenerLecturasSensoresPorFecha() {
+	// 1) Leer y validar idCultivo
+	idCultivoStr := c.Ctx.Input.Param(":idcultivo")
+	if idCultivoStr == "" {
+		c.Ctx.Output.SetStatus(http.StatusBadRequest)
+		c.Data["json"] = map[string]string{"error": "Falta idcultivo en la ruta"}
+		c.ServeJSON()
+		return
+	}
+	idCultivo, err := strconv.Atoi(idCultivoStr)
+	if err != nil {
+		c.Ctx.Output.SetStatus(http.StatusBadRequest)
+		c.Data["json"] = map[string]string{"error": "idcultivo inválido"}
+		c.ServeJSON()
+		return
+	}
+
+	// 2) Leer parámetros de query: startDate y endDate (YYYY-MM-DD)
+	layout := "2006-01-02"
+	hoy := time.Now()
+	ayer := hoy.AddDate(0, 0, -1)
+	startStr := c.Ctx.Input.Query("startDate")
+	endStr := c.Ctx.Input.Query("endDate")
+
+	var startDate, endDate time.Time
+	if startStr == "" {
+		startDate = time.Date(ayer.Year(), ayer.Month(), ayer.Day(), 0, 0, 0, 0, hoy.Location())
+	} else {
+		startDate, err = time.Parse(layout, startStr)
+		if err != nil {
+			c.Ctx.Output.SetStatus(http.StatusBadRequest)
+			c.Data["json"] = map[string]string{"error": "startDate inválido, debe ser YYYY-MM-DD"}
+			c.ServeJSON()
+			return
+		}
+	}
+	if endStr == "" {
+		// incluir hasta el final del día de hoy
+		endDate = time.Date(hoy.Year(), hoy.Month(), hoy.Day(), 23, 59, 59, 0, hoy.Location())
+	} else {
+		endDate, err = time.Parse(layout, endStr)
+		if err != nil {
+			c.Ctx.Output.SetStatus(http.StatusBadRequest)
+			c.Data["json"] = map[string]string{"error": "endDate inválido, debe ser YYYY-MM-DD"}
+			c.ServeJSON()
+			return
+		}
+		// ajustar hora al final de ese día
+		endDate = time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, hoy.Location())
+	}
+
+	// 3) Construir consulta al servicio de lecturas de sensores
+	// Asumimos que API_CRUD_SENSORES expone lecturas con filtro por FkCultivo y rango de FechaLectura
+	filtro := fmt.Sprintf(
+		"?query=FkSensor.FkCultivo.Id:%d,FechaLectura:>=%s,FechaLectura:<=%s&sortby=FechaLectura&order=asc",
+		idCultivo,
+		startDate.Format(time.RFC3339),
+		endDate.Format(time.RFC3339),
+	)
+	respBytes, err := services.Metodo_get("API_CRUD_SENSORES", "/v1/Lectura_Sensor", filtro)
+	if err != nil {
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]string{"error": "Error consultando lecturas de sensores", "detalle": err.Error()}
+		c.ServeJSON()
+		return
+	}
+
+	// 4) Parsear respuesta
+	var crudResp map[string]interface{}
+	if err := json.Unmarshal(respBytes, &crudResp); err != nil {
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]string{"error": "No se pudo parsear respuesta de lecturas", "detalle": err.Error()}
+		c.ServeJSON()
+		return
+	}
+	dataArr, ok := crudResp["Data"].([]interface{})
+	if !ok {
+		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
+		c.Data["json"] = map[string]string{"error": "Formato inesperado de Data en respuesta"}
+		c.ServeJSON()
+		return
+	}
+
+	// 5) Agrupar lecturas por sensor
+	type lectura struct {
+		Timestamp time.Time `json:"timestamp"`
+		Valor     float64   `json:"valor"`
+	}
+	agrupado := make(map[string][]lectura)
+	for _, item := range dataArr {
+		rec := item.(map[string]interface{})
+		// Extraer ID de sensor
+		sensorMap := rec["FkSensor"].(map[string]interface{})
+		idSensor := fmt.Sprintf("%v", sensorMap["Id"])
+		// FechaLectura
+		fechaStr := rec["FechaLectura"].(string)
+		ts, err := time.Parse(time.RFC3339, fechaStr)
+		if err != nil {
+			continue
+		}
+		// Valor (asumimos campo "Valor")
+		val, _ := rec["Valor"].(float64)
+		agrupado[idSensor] = append(agrupado[idSensor], lectura{
+			Timestamp: ts,
+			Valor:     val,
+		})
+	}
+
+	// 6) Devolver JSON
+	c.Data["json"] = map[string]interface{}{
+		"idCultivo":         idCultivo,
+		"startDate":         startDate.Format(time.RFC3339),
+		"endDate":           endDate.Format(time.RFC3339),
+		"lecturasPorSensor": agrupado,
+	}
+	c.ServeJSON()
 }
 
 // GetAll ...
