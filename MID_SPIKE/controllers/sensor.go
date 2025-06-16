@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/astaxie/beego"
 	"github.com/sena_2824182/API_MID_SPIKE/MID_SPIKE/services"
@@ -318,102 +319,312 @@ func (c *SensorController) GetOne() {
 // @Param	offset	query	string	false	"Start position of result set. Must be an integer"
 // @Success 200 {object} []map[string]interface{}
 // @Failure 500
-// @router / [get]
+// @router /sensoresPorCultivo/:id [get]
 func (c *SensorController) GetAll() {
-	// falta llamar la tabla tipo_sensor
-	fmt.Println("Obteniendo la relación entre sensores y geolocalizaciones")
+	cultivoID := c.Ctx.Input.Param(":id")
 
-	// Llamada al servicio para obtener la tabla de relación sensor-geolocalizacion
-	sensorGeoResponse, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion", "")
+	// 1. Obtener registro de cultivo y extraer Id_Parcela dinámicamente
+	cultivoResp, err := services.Metodo_get("API_CRUD_CULTIVO", "/v1/Registro_Cultivo/", cultivoID)
 	if err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al obtener la relación sensor-geolocalización", "detalle": err.Error()}
-		c.ServeJSON()
+		c.setError(http.StatusInternalServerError, "Error al obtener RegistroCultivo", err)
 		return
 	}
-
-	// Imprimir la respuesta del servicio para inspección
-	fmt.Printf("Respuesta del servicio: %s\n", sensorGeoResponse)
-
-	// Parsear la respuesta de la tabla de relación
-	var sensorGeoData map[string]interface{}
-	if err := json.Unmarshal(sensorGeoResponse, &sensorGeoData); err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la relación sensor-geolocalización", "detalle": err.Error()}
-		c.ServeJSON()
+	var rc map[string]interface{}
+	if err := json.Unmarshal(cultivoResp, &rc); err != nil {
+		c.setError(http.StatusInternalServerError, "Error parsing RegistroCultivo", err)
 		return
 	}
-
-	// Validar que hay datos en la tabla de relación
-	sensorGeolocalizaciones, okSensorGeo := sensorGeoData["Data"].([]interface{})
-	if !okSensorGeo {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"mensaje": "No hay relaciones sensor-geolocalización registradas"}
-		c.ServeJSON()
-		return
-	}
-
-	// Obtener la estructura de la tabla sensor_geolocalizacion desde el CRUD
-	sensorGeoStructResponse, err := services.Metodo_get("API_CRUD_SENSOR", "/v1/sensor_geolocalizacion", "?limit=0") // Usar limit=0 para obtener solo la estructura
-	if err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al obtener la estructura de la tabla sensor_geolocalizacion", "detalle": err.Error()}
-		c.ServeJSON()
-		return
-	}
-
-	// Parsear la respuesta de la estructura de la tabla
-	var sensorGeoStructData map[string]interface{}
-	if err := json.Unmarshal(sensorGeoStructResponse, &sensorGeoStructData); err != nil {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al procesar la respuesta de la estructura de la tabla sensor_geolocalizacion", "detalle": err.Error()}
-		c.ServeJSON()
-		return
-	}
-
-	// Extraer la estructura del primer elemento de los datos (asumiendo que el primer elemento tiene la estructura)
-	estructura, okEstructura := sensorGeoStructData["Data"].([]interface{})[0].(map[string]interface{})
-	if !okEstructura {
-		c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-		c.Data["json"] = map[string]interface{}{"error": "Error al extraer la estructura de la tabla sensor_geolocalizacion"}
-		c.ServeJSON()
-		return
-	}
-
-	// Crear un mapa para almacenar los datos organizados
-	respuesta := make([]map[string]interface{}, 0)
-
-	// Iterar sobre los datos de sensor_geolocalizacion
-	for _, sg := range sensorGeolocalizaciones {
-		sgMap, ok := sg.(map[string]interface{})
-		if !ok {
-			c.Ctx.Output.SetStatus(http.StatusInternalServerError)
-			c.Data["json"] = map[string]interface{}{"error": "Error al procesar datos de sensor_geolocalizacion"}
-			c.ServeJSON()
+	// soportar Data como objeto único o slice
+	var cultMap map[string]interface{}
+	switch d := rc["Data"].(type) {
+	case []interface{}:
+		if len(d) == 0 {
+			c.setError(http.StatusNotFound, "RegistroCultivo no encontrado", nil)
 			return
 		}
+		cultMap = d[0].(map[string]interface{})
+	case map[string]interface{}:
+		cultMap = d
+	default:
+		c.setError(http.StatusInternalServerError, "Formato de Data inesperado", nil)
+		return
+	}
+	parcelaIDf, ok := cultMap["Id_Parcela"].(float64)
+	if !ok {
+		c.setError(http.StatusInternalServerError, "Campo Id_Parcela no encontrado", nil)
+		return
+	}
+	parcelaID := int(parcelaIDf)
 
-		// Crear un nuevo mapa para cada elemento, usando la estructura del CRUD
-		nuevoElemento := make(map[string]interface{})
-		for k := range estructura {
-			// Convertir los valores al tipo adecuado basado en la estructura del CRUD
-			switch v := sgMap[k].(type) {
-			case float64:
-				nuevoElemento[k] = int(v) // Convertir float64 a int para los campos ID
-			default:
-				nuevoElemento[k] = v
+	// 2. Obtener FincaParcela y coordenadas del parcel_bounds
+	fpResp, err := services.Metodo_get("API_CRUD_FINCA",
+		fmt.Sprintf("/v1/FincaParcela?query=FkParcelaFinca:%d", parcelaID), "")
+	if err != nil {
+		c.setError(http.StatusInternalServerError, "Error al obtener FincaParcela", err)
+		return
+	}
+	var fp map[string]interface{}
+	if err := json.Unmarshal(fpResp, &fp); err != nil {
+		c.setError(http.StatusInternalServerError, "Error parsing FincaParcela", err)
+		return
+	}
+	fpList, ok := fp["Data"].([]interface{})
+	if !ok || len(fpList) == 0 {
+		c.setError(http.StatusInternalServerError, "FincaParcela sin datos", nil)
+		return
+	}
+	fpMap := fpList[0].(map[string]interface{})
+	geoObj, _ := fpMap["FkGeolocalizacion"].(map[string]interface{})
+	li, _ := strconv.ParseFloat(geoObj["LatitudInicial"].(string), 64)
+	lf, _ := strconv.ParseFloat(geoObj["LatitudFinal"].(string), 64)
+	lj, _ := strconv.ParseFloat(geoObj["LongitudInicial"].(string), 64)
+	ljf, _ := strconv.ParseFloat(geoObj["LongitudFinal"].(string), 64)
+	// midLat := (li + lf) / 2
+	// midLng := (lj + ljf) / 2
+
+	// 3. Obtener sensores asociados al cultivo
+	sensResp, err := services.Metodo_get("API_CRUD_SENSOR",
+		fmt.Sprintf("/v1/Sensor?query=FkCultivo:%s", cultivoID), "")
+	if err != nil {
+		c.setError(http.StatusInternalServerError, "Error al obtener sensores", err)
+		return
+	}
+	var sd map[string]interface{}
+	if err := json.Unmarshal(sensResp, &sd); err != nil {
+		c.setError(http.StatusInternalServerError, "Error parsing lista sensores", err)
+		return
+	}
+	sensData, ok := sd["Data"].([]interface{})
+	if !ok || len(sensData) == 0 {
+		c.Data["json"] = map[string]interface{}{"mensaje": "No hay sensores registrados para este cultivo", "data": []interface{}{}}
+		c.ServeJSON()
+		return
+	}
+
+	// 4. Construir respuesta iterando dinámicamente
+	var result []map[string]interface{}
+	for _, item := range sensData {
+		sMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		sensorID := int(sMap["Id"].(float64))
+		nombre, _ := sMap["IdentificadorSensor"].(string)
+		fecha, _ := sMap["FechaInstalacion"].(string)
+		activo, _ := sMap["Activo"].(bool)
+
+		tipoObj, _ := sMap["FkTipoSensor"].(map[string]interface{})
+		tipoName, _ := tipoObj["NombreTipoSensor"].(string)
+
+		// 4.1 obtener posición cardinal del sensor
+		sgResp, _ := services.Metodo_get("API_CRUD_SENSOR",
+			fmt.Sprintf("/v1/sensor_geolocalizacion?query=FkSensor:%d", sensorID), "")
+		var sgd map[string]interface{}
+		json.Unmarshal(sgResp, &sgd)
+
+		var lat, lng float64
+		if sArr, ok := sgd["Data"].([]interface{}); ok && len(sArr) > 0 {
+			sg0 := sArr[0].(map[string]interface{})
+			if geoObj, ok := sg0["FkGeolocalizacionSensor"].(map[string]interface{}); ok {
+				lat, _ = geoObj["Latitud"].(float64)
+				lng, _ = geoObj["Longitud"].(float64)
 			}
 		}
-		respuesta = append(respuesta, nuevoElemento)
+
+		estado := "inactivo"
+		if activo {
+			estado = "activo"
+		}
+
+		elemento := map[string]interface{}{
+			"id":            sensorID,
+			"nombre_sensor": nombre,
+			"tipo_sensor":   tipoName,
+			"ubicacionSensor": map[string]float64{
+				"lat": lat,
+				"lng": lng,
+			},
+			"fecha_instalacion": fecha,
+			"estado":            estado,
+			"geolocalizacionParcela": map[string]float64{
+				"lat_inicial": li,
+				"lng_inicial": lj,
+				"lat_final":   lf,
+				"lng_final":   ljf,
+			},
+		}
+		result = append(result, elemento)
 	}
 
-	// Responder con la lista de relaciones sensor-geolocalización
-	c.Data["json"] = map[string]interface{}{
-		"mensaje":           "Lista de relaciones sensor-geolocalización",
-		"data":              respuesta,
-		"cantidad sensores": len(respuesta),
-	}
+	c.Data["json"] = map[string]interface{}{"mensaje": "Sensores por cultivo", "data": result}
 	c.ServeJSON()
+}
+
+// GetOne ...
+// @Title GetGeolocalizacionParcela
+// @Description get Sensor by id
+// @Param	id		path 	string	true		"The key for staticblock"
+// @Success 200 {object} models.Sensor
+// @Failure 403 :id is empty
+// @router /geolocalizacionParcela/:id [get]
+func (c *SensorController) GetGeolocalizacionParcela() {
+	cultivoID := c.Ctx.Input.Param(":id")
+
+	// 1. Obtener el Registro_Cultivo para extraer dinámicamente el Id_Parcela
+	cultivoResp, err := services.Metodo_get("API_CRUD_CULTIVO", "/v1/Registro_Cultivo/", cultivoID)
+	if err != nil {
+		c.setError(http.StatusInternalServerError, "Error al obtener RegistroCultivo", err)
+		return
+	}
+	var rc map[string]interface{}
+	if err := json.Unmarshal(cultivoResp, &rc); err != nil {
+		c.setError(http.StatusInternalServerError, "Error parseando RegistroCultivo", err)
+		return
+	}
+
+	// Normalizar Data (objeto único o slice)
+	var cultMap map[string]interface{}
+	switch d := rc["Data"].(type) {
+	case []interface{}:
+		if len(d) == 0 {
+			c.setError(http.StatusNotFound, "RegistroCultivo no encontrado", nil)
+			return
+		}
+		cultMap = d[0].(map[string]interface{})
+	case map[string]interface{}:
+		cultMap = d
+	default:
+		c.setError(http.StatusInternalServerError, "Formato de Data inesperado", nil)
+		return
+	}
+
+	parcelaIDf, ok := cultMap["Id_Parcela"].(float64)
+	if !ok {
+		c.setError(http.StatusInternalServerError, "Campo Id_Parcela no encontrado", nil)
+		return
+	}
+	parcelaID := int(parcelaIDf)
+
+	// 2. Obtener FincaParcela y coordenadas del parcel_bounds
+	fpResp, err := services.Metodo_get("API_CRUD_FINCA",
+		fmt.Sprintf("/v1/FincaParcela?query=FkParcelaFinca:%d", parcelaID), "")
+	if err != nil {
+		c.setError(http.StatusInternalServerError, "Error al obtener FincaParcela", err)
+		return
+	}
+	var fp map[string]interface{}
+	if err := json.Unmarshal(fpResp, &fp); err != nil {
+		c.setError(http.StatusInternalServerError, "Error parseando FincaParcela", err)
+		return
+	}
+	fpList, ok := fp["Data"].([]interface{})
+	if !ok || len(fpList) == 0 {
+		c.setError(http.StatusNotFound, "FincaParcela sin datos", nil)
+		return
+	}
+	fpMap := fpList[0].(map[string]interface{})
+	geoObj := fpMap["FkGeolocalizacion"].(map[string]interface{})
+	parObj := fpMap["FkParcelaFinca"].(map[string]interface{})
+
+	li, _ := strconv.ParseFloat(geoObj["LatitudInicial"].(string), 64)
+	lf, _ := strconv.ParseFloat(geoObj["LatitudFinal"].(string), 64)
+	lj, _ := strconv.ParseFloat(geoObj["LongitudInicial"].(string), 64)
+	ljf, _ := strconv.ParseFloat(geoObj["LongitudFinal"].(string), 64)
+
+	// 3. Obtener sensores asociados al cultivo
+	sensResp, err := services.Metodo_get("API_CRUD_SENSOR",
+		fmt.Sprintf("/v1/Sensor?query=FkCultivo:%s", cultivoID), "")
+	if err != nil {
+		c.setError(http.StatusInternalServerError, "Error al obtener sensores", err)
+		return
+	}
+	var sd map[string]interface{}
+	if err := json.Unmarshal(sensResp, &sd); err != nil {
+		c.setError(http.StatusInternalServerError, "Error parseando lista sensores", err)
+		return
+	}
+	sensData, ok := sd["Data"].([]interface{})
+	if !ok {
+		c.setError(http.StatusInternalServerError, "Formato de datos de sensores inesperado", nil)
+		return
+	}
+
+	// 4. Construir respuesta incluyendo campos extra
+	var sensors []map[string]interface{}
+	for _, item := range sensData {
+		sMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		sensorID := int(sMap["Id"].(float64))
+		identificador, _ := sMap["IdentificadorSensor"].(string)
+		activo, _ := sMap["Activo"].(bool)
+
+		tipoObj, _ := sMap["FkTipoSensor"].(map[string]interface{})
+		tipoName, _ := tipoObj["NombreTipoSensor"].(string)
+
+		// Obtener geolocalización del sensor
+		sgResp, _ := services.Metodo_get("API_CRUD_SENSOR",
+			fmt.Sprintf("/v1/sensor_geolocalizacion?query=FkSensor:%d", sensorID), "")
+		var sgd map[string]interface{}
+		json.Unmarshal(sgResp, &sgd)
+
+		var lat, lng float64
+		if sArr, ok := sgd["Data"].([]interface{}); ok && len(sArr) > 0 {
+			sg0 := sArr[0].(map[string]interface{})
+			if geoS, ok := sg0["FkGeolocalizacionSensor"].(map[string]interface{}); ok {
+				lat = geoS["Latitud"].(float64)
+				lng = geoS["Longitud"].(float64)
+			}
+		}
+
+		estado := "inactivo"
+		if activo {
+			estado = "activo"
+		}
+
+		sensors = append(sensors, map[string]interface{}{
+			"idSensor":            sensorID,
+			"identificadorSensor": identificador,
+			"tipo_sensor":         tipoName,
+			"estado":              estado,
+			"ubicacionSensor": map[string]float64{
+				"lat": lat,
+				"lng": lng,
+			},
+		})
+	}
+
+	// 5. Responder con geolocalización de parcela y lista de sensores
+	respuesta := map[string]interface{}{
+		"mensaje":       "Geolocalización de la parcela y sensores",
+		"nombreParcela": parObj["NombreParcela"],
+		"geolocalizacionParcela": map[string]float64{
+			"lat_inicial": li,
+			"lng_inicial": lj,
+			"lat_final":   lf,
+			"lng_final":   ljf,
+		},
+		"sensors": sensors,
+	}
+
+	c.Data["json"] = respuesta
+	c.ServeJSON()
+}
+
+// setError helper para manejar errores
+func (c *SensorController) setError(code int, msg string, err error) {
+	c.Ctx.Output.SetStatus(code)
+	c.Data["json"] = map[string]interface{}{"error": msg, "detalle": errString(err)}
+	c.ServeJSON()
+}
+
+func errString(err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // Put ...

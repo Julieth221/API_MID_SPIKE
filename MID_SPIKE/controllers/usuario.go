@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 
 	"github.com/astaxie/beego"
@@ -35,7 +36,7 @@ func (c *UsuarioController) URLMapping() {
 // @router / [post]
 func (c *UsuarioController) Post() {
 	var body_ingreso map[string]interface{}
-	var reponseUsuario, responseCredencial, responseRolUsuario []byte
+	var reponseUsuario, responseCredencial []byte
 
 	if err := json.Unmarshal(c.Ctx.Input.RequestBody, &body_ingreso); err == nil {
 		fmt.Println("Body que ingresa", body_ingreso)
@@ -103,12 +104,48 @@ func (c *UsuarioController) Post() {
 		}
 		fmt.Println("Id de credenciales: ", credencialID)
 
+		// 2. Gestionar TipoDocumento
+		desc, _ := body_ingreso["TipoDocumento"].(string)
+		descEsc := url.QueryEscape(desc)
+
+		// 2) Construye solo el valor de la query (sin '?' ni 'query=')
+		queryVal := fmt.Sprintf("Descripcion:%s", descEsc)
+		fmt.Println("?query=" + queryVal)
+		var tipoID float64
+		respGet, err := services.Metodo_get("API_CRUD", "/v1/tipo_documento?query=", queryVal)
+		if err != nil {
+			fmt.Println("Error GET TipoDocumento:", err)
+			c.CustomAbort(500, "Error al consultar tipo_documento")
+		}
+		var getTD map[string]interface{}
+		json.Unmarshal(respGet, &getTD)
+		arr, _ := getTD["Data"].([]interface{})
+		if len(arr) > 0 {
+			// Usar el primer registro existente
+			tipoID = arr[0].(map[string]interface{})["Id"].(float64)
+		} else {
+			// Crear nuevo TipoDocumento
+			newTD := map[string]interface{}{"Descripcion": desc}
+			tdB, _ := json.Marshal(newTD)
+			respPost, err := services.Metodo_post("API_CRUD", "/v1/tipo_documento", tdB)
+			if err != nil {
+				c.CustomAbort(500, "Error al crear tipo_documento")
+			}
+			var postTD map[string]interface{}
+			json.Unmarshal(respPost, &postTD)
+			tipoID = postTD["Data"].(map[string]interface{})["Id"].(float64)
+		}
+
 		// Crear JSON para Usuario con fk_credencial
 		jsonUsuario = map[string]interface{}{
 			"Nombre":            body_ingreso["Nombre"],
 			"Apellido":          body_ingreso["Apellido"],
 			"Contacto":          body_ingreso["Contacto"],
 			"CorreoElectronico": body_ingreso["CorreoElectronico"],
+			"NumeroDocumento":   body_ingreso["NumeroDocumento"],
+			"TipoDocumento": map[string]interface{}{
+				"Id": tipoID,
+			},
 			"FkCredencial": map[string]interface{}{
 				"Id": credencialID,
 			},
@@ -146,53 +183,77 @@ func (c *UsuarioController) Post() {
 		}
 
 		// Buscar el ID del Rol en la tabla Roles
-		rolNombre := body_ingreso["Rol"].(string) // Extrae el rol enviado en la solicitud
-		var responseRol []byte
-		responseRol, err = services.Metodo_get("API_CRUD", "/v1/Roles?query=Nombre:", rolNombre)
+		rolName, _ := body_ingreso["Rol"].(string)
+		descRolEsc := url.QueryEscape(rolName)
+		queryRol := fmt.Sprintf("?query=Nombre:%s", descRolEsc)
 
+		// GET roles existentes
+		respGetRL, err := services.Metodo_get("API_CRUD", "/v1/Roles", queryRol)
 		if err != nil {
-			fmt.Println("Error al obtener el rol:", err)
-			return
+			c.CustomAbort(500, "Error al consultar Roles")
 		}
+		var rlGet map[string]interface{}
+		json.Unmarshal(respGetRL, &rlGet)
 
-		var rolResponse map[string]interface{}
-		if err := json.Unmarshal(responseRol, &rolResponse); err != nil {
-			fmt.Println("Error al parsear respuesta de roles:", err)
-			return
-		}
-
+		// Intentamos extraer un rol válido
 		var rolID float64
-		if roles, ok := rolResponse["Data"].([]interface{}); ok && len(roles) > 0 {
-			if rolData, exists := roles[0].(map[string]interface{}); exists {
-				rolID = rolData["Id"].(float64)
+		if dataArr, ok := rlGet["Data"].([]interface{}); ok {
+			for _, item := range dataArr {
+				if m, ok := item.(map[string]interface{}); ok {
+					if idVal, exists := m["Id"]; exists {
+						if idFloat, ok := idVal.(float64); ok {
+							// Encontramos un ID válido: lo usamos
+							rolID = idFloat
+							break
+						}
+					}
+				}
 			}
-		} else {
-			fmt.Println("Error: No se encontró el rol en la base de datos")
-			return
 		}
 
-		// Crear registro en RolesUsuario
-		jsonRolUsuario := map[string]interface{}{
-			"FkUsuarioRoles": map[string]interface{}{
-				"Id": usuarioID,
-			},
-			"FkRolesUsuario": map[string]interface{}{
-				"Id": rolID,
-			},
+		// Si después del loop rolID sigue en cero → no encontramos un rol válido
+		if rolID == 0 {
+			// Creamos nuevo Rol
+			newRL := map[string]interface{}{"Nombre": rolName}
+			rlBytes, _ := json.Marshal(newRL)
+			respPostRL, err := services.Metodo_post("API_CRUD", "/v1/Roles", rlBytes)
+			if err != nil {
+				c.CustomAbort(500, "Error al crear Rol")
+			}
+			var rlPost map[string]interface{}
+			json.Unmarshal(respPostRL, &rlPost)
+
+			// Extraemos el Id del nuevo rol
+			if dataPost, ok := rlPost["Data"].(map[string]interface{}); ok {
+				if idVal, exists := dataPost["Id"]; exists {
+					if idFloat, ok := idVal.(float64); ok {
+						rolID = idFloat
+					} else {
+						c.CustomAbort(500, "Respuesta inválida al crear Rol (Id no numérico)")
+					}
+				} else {
+					c.CustomAbort(500, "Respuesta inválida al crear Rol (Id faltante)")
+				}
+			} else {
+				c.CustomAbort(500, "Estructura inválida al crear Rol")
+			}
+		}
+		// 7. Crear Roles_Usuario usando rolID seguro
+		roleUser := map[string]interface{}{
+			"FkUsuarioRoles": map[string]interface{}{"Id": usuarioID},
+			"FkRolesUsuario": map[string]interface{}{"Id": rolID},
+		}
+		ruBytes, _ := json.Marshal(roleUser)
+		if _, err := services.Metodo_post("API_CRUD", "/v1/Roles_Usuario", ruBytes); err != nil {
+			c.CustomAbort(500, "Error al asignar Rol al usuario")
 		}
 
-		json_rol_usuario_byte, _ := json.Marshal(jsonRolUsuario)
-		responseRolUsuario, _ = services.Metodo_post("API_CRUD", "/v1/Roles_Usuario", json_rol_usuario_byte)
+		c.Data["json"] = map[string]interface{}{
+			"Message": "¡Usuario creado exitosamente!",
+		}
+		c.ServeJSON()
 
-		fmt.Println("Respuesta de la API (RolesUsuario):", string(responseRolUsuario))
 	}
-
-	c.Data["json"] = map[string]interface{}{
-		"Message": "¡Usuario creado exitosamente!",
-	
-	}
-	c.ServeJSON()
-
 }
 
 // GetOne ...
