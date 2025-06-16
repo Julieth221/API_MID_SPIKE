@@ -146,9 +146,9 @@ func (c *UsuarioController) Post() {
 		}
 
 		// Buscar el ID del Rol en la tabla Roles
-		rolNombre := body_ingreso["rol"].(string) // Extrae el rol enviado en la solicitud
+		rolNombre := body_ingreso["Rol"].(string) // Extrae el rol enviado en la solicitud
 		var responseRol []byte
-		responseRol, err = services.Metodo_get("API_CRUD", "/v1/Roles?query=nombre:", rolNombre)
+		responseRol, err = services.Metodo_get("API_CRUD", "/v1/Roles?query=Nombre:", rolNombre)
 
 		if err != nil {
 			fmt.Println("Error al obtener el rol:", err)
