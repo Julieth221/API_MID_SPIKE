@@ -541,6 +541,8 @@ func (c *Gestion_fincaController) GetAll() {
 					"TipoSuelo":     fincaMap["FkFinca"].(map[string]interface{})["Nombre"],
 					"TotalParcelas": fincaMap["TotalParcelas"],
 					"Id":            fincaMap["Id"],
+					"Id_Usuario":    fincaMap["Id_Usuario"],
+					"Activo":        fincaMap["Activo"],
 				}
 				resultado = append(resultado, fincaInfo)
 				fmt.Println("fincas registradas del usuario: ", fincaInfo)
